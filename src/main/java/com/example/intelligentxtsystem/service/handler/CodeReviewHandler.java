@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 
 /**
  * 代码审查指令处理器
- * 指令格式：/cr <owner/repo> <PR号> - 自动代码审查
+ * 指令格式：/cr <owner/repo> <PR号> - AI 自动代码审查
  */
 @Component
 public class CodeReviewHandler implements CommandHandler {
@@ -54,7 +54,7 @@ public class CodeReviewHandler implements CommandHandler {
                     审查 microsoft/vscode 123
 
                     💡 功能说明：
-                    自动分析PR代码，给出审查建议
+                    使用 AI 自动分析 PR 代码，给出审查建议
                     """;
         }
 
@@ -62,15 +62,34 @@ public class CodeReviewHandler implements CommandHandler {
         String repo = matcher.group(2);
         int prNumber = Integer.parseInt(matcher.group(3));
 
-        return """
-                🔍 正在分析 PR #%d ...
+        try {
+            // 1. 获取 PR 基本信息
+            String prInfo = gitHubClient.getPRInfo(owner, repo, prNumber);
 
-                📦 仓库：%s/%s
+            // 2. 获取 PR 代码差异
+            String diff = gitHubClient.getPRDiff(owner, repo, prNumber);
 
-                ⚠️ 注意：完整代码审查需要配置代码访问权限
+            if (diff == null || diff.isEmpty()) {
+                return "🔍 PR #" + prNumber + " 信息\n\n" + prInfo + "\n\n⚠️ 无法获取代码差异，请检查 PR 是否存在或 Token 权限";
+            }
 
-                💡 当前显示PR基本信息：
-                """.formatted(prNumber, owner, repo) + "\n\n" +
-                gitHubClient.getPRInfo(owner, repo, prNumber);
+            // 3. AI 代码审查
+            String reviewResult = qwenClient.reviewCode(diff, prInfo);
+
+            return String.format("""
+                    🔍 代码审查报告 - PR #%d
+
+                    📦 仓库：%s/%s
+
+                    %s
+
+                    ━━━━━━━━━━━━━━━━━
+                    📋 PR 基本信息：
+                    %s
+                    """, prNumber, owner, repo, reviewResult, prInfo);
+
+        } catch (Exception e) {
+            return "⚠️ 代码审查失败：" + e.getMessage();
+        }
     }
 }

@@ -107,6 +107,33 @@ public class GitHubClient {
     }
 
     /**
+     * 获取PR的代码差异（diff）
+     */
+    public String getPRDiff(String owner, String repo, int prNumber) {
+        String url = API_URL + "/repos/" + owner + "/" + repo + "/pulls/" + prNumber;
+
+        HttpHeaders headers = new HttpHeaders();
+        if (token != null && !token.isEmpty()) {
+            headers.set("Authorization", "Bearer " + token);
+        }
+        headers.set("Accept", "application/vnd.github.v3.diff");
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                return response.getBody();
+            }
+            return null;
+        } catch (Exception e) {
+            logger.error("获取PR diff异常", e);
+            return null;
+        }
+    }
+
+    /**
      * 检查Token配置
      */
     public boolean isConfigured() {

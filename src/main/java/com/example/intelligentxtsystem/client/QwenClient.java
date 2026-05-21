@@ -155,4 +155,65 @@ public class QwenClient {
                 问题：%s
                 """, question);
     }
+
+    /**
+     * 使用通义千问进行代码审查
+     *
+     * @param diff  PR的代码差异
+     * @param prInfo PR基本信息
+     * @return 审查结果
+     */
+    public String reviewCode(String diff, String prInfo) {
+        logger.info("QwenClient.reviewCode() 被调用");
+
+        String prompt = buildCodeReviewPrompt(diff, prInfo);
+        logger.info("代码审查 Prompt 长度: {}", prompt.length());
+
+        try {
+            var response = callQwen(prompt);
+
+            if (response != null && response.containsKey("output")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> output = (Map<String, Object>) response.get("output");
+                String result = (String) output.get("text");
+                logger.info("代码审查结果: {}", result);
+                return result;
+            }
+
+            logger.warn("响应格式异常，未找到 output 字段");
+            return "代码审查结果解析失败，请稍后重试";
+        } catch (Exception e) {
+            logger.warn("代码审查异常: {}", e.getMessage());
+            return "代码审查服务暂时不可用，请稍后再试";
+        }
+    }
+
+    /**
+     * 构建代码审查提示词
+     */
+    private String buildCodeReviewPrompt(String diff, String prInfo) {
+        // 限制 diff 长度，避免超出 API 限制
+        String truncatedDiff = diff.length() > 8000 ? diff.substring(0, 8000) + "\n... (代码过长，已截断)" : diff;
+
+        return String.format("""
+                你是一位资深代码审查专家，请对以下 Pull Request 进行代码审查。
+
+                PR 基本信息：
+                %s
+
+                代码差异：
+                ```
+                %s
+                ```
+
+                请从以下方面给出审查意见（用中文回复）：
+                1. 代码质量：是否有明显 bug、逻辑错误
+                2. 安全性：是否存在安全风险（如 SQL 注入、XSS 等）
+                3. 性能：是否有性能问题
+                4. 可维护性：代码是否清晰、易维护
+                5. 改进建议：具体的优化建议
+
+                请简洁明了地给出审查结论，如果没有问题就说明代码看起来不错。
+                """, prInfo, truncatedDiff);
+    }
 }
