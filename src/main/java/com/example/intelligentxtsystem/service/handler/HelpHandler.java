@@ -17,7 +17,7 @@ public class HelpHandler implements CommandHandler {
             ─────────────────────────
             /weather <城市>         查询天气
             /translate <文本>       翻译（中英互译）
-            /schedule <时间> <事件>  创建日程
+            /schedule <时间> <事件>  创建日程（可选结束时间）
 
             📌 企业指令
             ─────────────────────────
@@ -40,6 +40,7 @@ public class HelpHandler implements CommandHandler {
             /weather 北京
             /translate Hello
             /schedule 2024-01-15 15:00 团队会议
+            /schedule 2024-01-15 15:00 16:00 项目评审
             /group 项目组
             /search 如何创建GitHub仓库
             /repo facebook/react
