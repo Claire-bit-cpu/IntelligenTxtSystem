@@ -3,7 +3,11 @@ package com.example.intelligentxtsystem.service.handler;
 import com.example.intelligentxtsystem.dto.FeishuSender;
 import org.springframework.stereotype.Component;
 
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.URL;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,17 +17,20 @@ import java.util.regex.Pattern;
  * 指令格式：
  * /ping <host> - 检测服务器连通性
  * /uptime - 查看服务运行时间
- * /deploy <环境> - 触发部署
+ * /deploy <环境> - 模拟部署流程
  */
 @Component
 public class DevOpsHandler implements CommandHandler {
 
     private final long startTime = System.currentTimeMillis();
 
-    // /ping 192.168.1.1
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    // /ping 192.168.1.1 或 /ping http://example.com
     private static final Pattern PING_PATTERN =
             Pattern.compile("^(?:/ping|ping)\\s+([^\\s]+)");
-    
+
     // /deploy prod
     private static final Pattern DEPLOY_PATTERN =
             Pattern.compile("^(?:/deploy|部署)\\s+(\\w+)");
@@ -53,7 +60,7 @@ public class DevOpsHandler implements CommandHandler {
         Matcher deployMatcher = DEPLOY_PATTERN.matcher(text);
         if (deployMatcher.find()) {
             String env = deployMatcher.group(1);
-            return handleDeploy(env);
+            return handleDeploy(env, sender);
         }
 
         return """
@@ -63,12 +70,13 @@ public class DevOpsHandler implements CommandHandler {
                 ─────────────────────────
                 /uptime        查看运行时间
                 /ping <主机>   检测连通性
-                /deploy <环境>  触发部署
+                /deploy <环境>  模拟部署流程
 
                 💡 使用示例
                 /uptime
-                /ping 192.168.1.1
-                /deploy prod
+                /ping baidu.com
+                /ping http://example.com
+                /deploy test
                 """;
     }
 
@@ -77,73 +85,125 @@ public class DevOpsHandler implements CommandHandler {
         long days = uptimeMs / (1000 * 60 * 60 * 24);
         long hours = (uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60);
         long minutes = (uptimeMs % (1000 * 60 * 60)) / (1000 * 60);
+        long seconds = (uptimeMs % (1000 * 60)) / 1000;
 
-        LocalDateTime now = LocalDateTime.now();
-        String format = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String now = LocalDateTime.now(ZONE).format(FORMATTER);
 
         return String.format("""
                 📊 系统状态
 
                 🕐 当前时间：%s
-                ⏱️  运行时间：%d天 %d小时 %d分钟
+                ⏱️  运行时间：%d天 %d小时 %d分钟 %d秒
                 ✅ 状态：正常运行
-                """, format, days, hours, minutes);
+                """, now, days, hours, minutes, seconds);
     }
 
     private String handlePing(String host) {
-        // 简单的连通性检测（实际应该用ICMP或HTTP检测）
         if (host == null || host.isEmpty()) {
             return "❌ 请指定主机地址";
         }
 
-        return String.format("""
-                🔍 Ping 检测
+        StringBuilder result = new StringBuilder();
+        result.append(String.format("🔍 Ping 检测\n\n🎯 目标：%s\n\n", host));
 
-                🎯 目标：%s
+        // 1. ICMP Ping（域名/IP 连通性）
+        try {
+            String cleanHost = host.replaceAll("^https?://", "").replaceAll("/.*$", "");
+            long start = System.currentTimeMillis();
+            boolean reachable = InetAddress.getByName(cleanHost).isReachable(5000);
+            long pingTime = System.currentTimeMillis() - start;
 
-                ⏳ 正在检测...
-                ⚠️ 注意：当前为模拟响应
+            if (reachable) {
+                result.append(String.format("📡 ICMP：✅ 可达（%dms）\n", pingTime));
+            } else {
+                result.append("📡 ICMP：❌ 不可达\n");
+            }
+        } catch (Exception e) {
+            result.append("📡 ICMP：❌ 解析失败（").append(e.getMessage()).append("）\n");
+        }
 
-                💡 生产环境请配置真实的健康检查接口
-                """, host);
+        // 2. HTTP 检测（如果输入的是 URL 或域名）
+        if (host.startsWith("http://") || host.startsWith("https://") || !host.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$")) {
+            try {
+                String url = host.startsWith("http") ? host : "https://" + host;
+                long start = System.currentTimeMillis();
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                // 只获取响应码，不读body
+                int code = conn.getResponseCode();
+                long httpTime = System.currentTimeMillis() - start;
+                conn.disconnect();
+
+                result.append(String.format("🌐 HTTP：✅ 状态码 %d（%dms）\n", code, httpTime));
+            } catch (Exception e) {
+                result.append("🌐 HTTP：❌ 连接失败（").append(e.getMessage()).append("）\n");
+            }
+        }
+
+        result.append("\n🕐 检测时间：").append(LocalDateTime.now(ZONE).format(FORMATTER));
+        return result.toString();
     }
 
-    private String handleDeploy(String env) {
+    private String handleDeploy(String env, FeishuSender sender) {
         String normalizedEnv = env.toLowerCase();
 
-        if (!normalizedEnv.matches("^(dev|test|prod|production)$")) {
+        if (!normalizedEnv.matches("^(dev|test|staging|prod|production)$")) {
             return """
                     ❌ 部署环境无效
 
                     可用环境：
-                    • dev / test - 开发/测试环境
+                    • dev - 开发环境
+                    • test - 测试环境
+                    • staging - 预发布环境
                     • prod / production - 生产环境
-
-                    ⚠️ 生产环境部署需要确认
                     """;
         }
 
         boolean isProd = normalizedEnv.equals("prod") || normalizedEnv.equals("production");
+        String operator = sender != null ? sender.getOpenId() : "系统";
+        String now = LocalDateTime.now(ZONE).format(FORMATTER);
+
+        if (isProd) {
+            return String.format("""
+                    ⚠️ 生产环境部署确认
+
+                    📦 环境：production
+                    👤 操作者：%s
+                    🕐 时间：%s
+
+                    ❗ 生产环境部署需要额外确认！
+                    当前为模拟模式，未执行实际部署操作。
+
+                    如需接入真实部署，请配置 CI/CD 平台（如 Jenkins、GitHub Actions）
+                    """, operator, now);
+        }
+
+        String envLabel = switch (normalizedEnv) {
+            case "dev" -> "开发环境";
+            case "test" -> "测试环境";
+            case "staging" -> "预发布环境";
+            default -> normalizedEnv;
+        };
 
         return String.format("""
-                🚀 部署任务已提交
+                🚀 模拟部署流程
 
-                📦 环境：%s
+                📦 环境：%s（%s）
+                👤 操作者：%s
                 🕐 时间：%s
 
-                %s
-
-                📋 部署步骤：
+                📋 模拟步骤：
                 1. 代码拉取 ✓
-                2. 构建镜像 [进行中]
-                3. 推送到仓库
-                4. 更新服务
-                5. 健康检查
+                2. 构建打包 ✓
+                3. 部署服务 ✓
+                4. 健康检查 ✓
 
-                💡 查看详细日志请访问部署平台
-                """,
-                isProd ? "⚠️ 生产环境" : "🔧 " + env.toUpperCase(),
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                isProd ? "⚠️ 生产环境部署，请确认操作" : "");
+                ✅ 模拟部署完成
+
+                💡 当前为模拟模式，未执行实际部署操作。
+                如需接入真实部署，请配置 CI/CD 平台。
+                """, normalizedEnv, envLabel, operator, now);
     }
 }
