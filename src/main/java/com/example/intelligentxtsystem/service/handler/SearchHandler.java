@@ -9,7 +9,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 知识库搜索指令处理器
@@ -33,6 +36,19 @@ public class SearchHandler implements CommandHandler {
     private final SearchSyncScheduler syncScheduler;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 本地管理员缓存：存储所有群的管理员ID列表
+     * Key: chatId
+     * Value: 管理员OpenID集合（带过期时间）
+     */
+    private final Map<String, AdminListCacheEntry> adminListCache = new ConcurrentHashMap<>();
+
+    /**
+     * 管理员列表缓存有效期（秒）：30分钟
+     * 每30分钟重新从API获取一次管理员列表
+     */
+    private static final long ADMIN_LIST_CACHE_DURATION_SECONDS = 1800;
+
     public SearchHandler(FeishuClient feishuClient, SearchIndexService indexService,
                          SearchSyncScheduler syncScheduler, ObjectMapper objectMapper) {
         this.feishuClient = feishuClient;
@@ -42,7 +58,7 @@ public class SearchHandler implements CommandHandler {
     }
 
     /**
-     * 检查用户是否为群管理员
+     * 检查用户是否为群管理员（使用本地缓存的管理员列表）
      * 
      * @param senderOpenId 发送者的OpenID
      * @param chatId 群聊ID
@@ -52,9 +68,77 @@ public class SearchHandler implements CommandHandler {
         if (senderOpenId == null || chatId == null) {
             return false;
         }
-        
-        java.util.Set<String> adminIds = feishuClient.getChatAdminIds(chatId);
+
+        // 从本地缓存获取管理员列表
+        Set<String> adminIds = getAdminIdsFromCache(chatId);
         return adminIds.contains(senderOpenId);
+    }
+
+    /**
+     * 从本地缓存获取管理员ID列表（带自动刷新）
+     */
+    private Set<String> getAdminIdsFromCache(String chatId) {
+        AdminListCacheEntry cachedEntry = adminListCache.get(chatId);
+
+        // 缓存未命中或已过期，重新获取
+        if (cachedEntry == null || cachedEntry.isExpired()) {
+            log.info("管理员列表缓存未命中或已过期，重新获取: chatId={}", chatId);
+            Set<String> adminIds = feishuClient.getChatAdminIds(chatId);
+            adminListCache.put(chatId, new AdminListCacheEntry(adminIds));
+            return adminIds;
+        }
+
+        log.debug("管理员列表缓存命中: chatId={}, 管理员数量={}", chatId, cachedEntry.adminIds.size());
+        return cachedEntry.adminIds;
+    }
+
+    /**
+     * 手动刷新指定群的管理员列表（供定时任务调用）
+     */
+    public void refreshAdminList(String chatId) {
+        if (chatId == null || chatId.isEmpty()) {
+            return;
+        }
+
+        log.info("手动刷新管理员列表: chatId={}", chatId);
+        Set<String> adminIds = feishuClient.getChatAdminIds(chatId);
+        adminListCache.put(chatId, new AdminListCacheEntry(adminIds));
+    }
+
+    /**
+     * 清除所有管理员缓存（供定时任务批量刷新）
+     */
+    public void refreshAllAdminLists(Set<String> chatIds) {
+        if (chatIds == null || chatIds.isEmpty()) {
+            return;
+        }
+
+        log.info("批量刷新管理员列表: {} 个群", chatIds.size());
+        for (String chatId : chatIds) {
+            try {
+                Set<String> adminIds = feishuClient.getChatAdminIds(chatId);
+                adminListCache.put(chatId, new AdminListCacheEntry(adminIds));
+            } catch (Exception e) {
+                log.warn("刷新管理员列表失败: chatId={}", chatId, e);
+            }
+        }
+    }
+
+    /**
+     * 管理员列表缓存条目
+     */
+    private static class AdminListCacheEntry {
+        private final Set<String> adminIds;
+        private final long expireTime; // 过期时间戳（秒）
+
+        AdminListCacheEntry(Set<String> adminIds) {
+            this.adminIds = adminIds != null ? adminIds : Set.of();
+            this.expireTime = Instant.now().getEpochSecond() + ADMIN_LIST_CACHE_DURATION_SECONDS;
+        }
+
+        boolean isExpired() {
+            return Instant.now().getEpochSecond() > expireTime;
+        }
     }
 
     @Override
@@ -69,20 +153,84 @@ public class SearchHandler implements CommandHandler {
                 .trim();
 
         if (keyword.isEmpty()) {
-            return """
-                    ❌ 用法：/search <关键词>
-                    
-                    📋 示例：
-                    /search 项目规范
-                    搜索 需求文档
-                    查询 API接口
-                    
-                    💡 搜索群内文件、飞书知识库及本地索引
-                    """;
+            // 检查是否为群管理员，根据权限显示不同的帮助信息
+            boolean isAdmin = false;
+            String senderOpenId = sender != null ? sender.getOpenId() : null;
+            if (senderOpenId != null && chatId != null) {
+                isAdmin = isGroupAdmin(senderOpenId, chatId);
+            }
+
+            if (isAdmin) {
+                // 管理员：显示所有指令
+                return """
+                        ❌ 用法：/search <关键词>
+                        
+                        📋 示例：
+                        /search 项目规范
+                        搜索 需求文档
+                        查询 API接口
+                        
+                        🔧 管理命令：
+                        /search sync         - 同步索引
+                        /search status       - 索引状态
+                        /search refresh_admins - 刷新管理员列表
+                        
+                        💡 搜索群内文件、飞书知识库及本地索引
+                        """;
+            } else {
+                // 普通成员：只显示搜索指令
+                return """
+                        ❌ 用法：/search <关键词>
+                        
+                        📋 示例：
+                        /search 项目规范
+                        搜索 需求文档
+                        查询 API接口
+                        
+                        💡 搜索群内文件、飞书知识库及本地索引
+                        """;
+            }
         }
 
         if (keyword.length() > 200) {
             return "⚠️ 关键词长度不能超过200个字符";
+        }
+
+        // 刷新管理员列表命令（需要管理员权限）
+        if ("refresh_admins".equalsIgnoreCase(keyword)) {
+            String senderOpenId = sender != null ? sender.getOpenId() : null;
+            
+            if (senderOpenId == null) {
+                return """
+                        ❌ 无法验证权限
+                        
+                        🔒 请确保在群聊中使用此命令
+                        
+                        💡 如果问题持续，请联系开发者
+                        """;
+            }
+            
+            // 检查是否为群管理员
+            if (!isGroupAdmin(senderOpenId, chatId)) {
+                return """
+                        ❌ 权限不足
+                        
+                        🔒 /search refresh_admins 命令仅群管理员可用
+                        
+                        💡 请联系群管理员执行此操作
+                        """;
+            }
+            
+            // 刷新管理员列表
+            refreshAdminList(chatId);
+            
+            return """
+                    ✅ 管理员列表已刷新
+                    
+                    📊 当前群管理员数量：%d
+                    
+                    💡 权限缓存已清除，下次执行管理命令时将重新验证权限
+                    """.formatted(getAdminIdsFromCache(chatId).size());
         }
 
         // 管理命令（需要管理员权限）
