@@ -22,7 +22,8 @@ public class HelpHandler implements CommandHandler {
             📌 企业指令
             ─────────────────────────
             /group <群名>      创建群组
-            /search <问题>     知识搜索/问答
+            /search <关键词>   搜索飞书云文档
+            /AI <问题>          AI智能问答
 
             📌 GitHub 指令
             ─────────────────────────
@@ -42,7 +43,8 @@ public class HelpHandler implements CommandHandler {
             /schedule 2024-01-15 15:00 团队会议
             /schedule 2024-01-15 15:00 16:00 项目评审
             /group 项目组
-            /search 如何创建GitHub仓库
+            /search 需求文档
+            /AI 如何创建GitHub仓库
             /repo facebook/react
             /cr microsoft/vscode 12345
             /uptime
@@ -58,7 +60,7 @@ public class HelpHandler implements CommandHandler {
     }
 
     @Override
-    public String handle(String text, FeishuSender sender) {
+    public String handle(String text, FeishuSender sender, String chatId) {
         return HELP_TEXT;
     }
 }

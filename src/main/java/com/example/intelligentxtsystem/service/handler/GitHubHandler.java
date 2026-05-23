@@ -37,7 +37,7 @@ public class GitHubHandler implements CommandHandler {
     }
 
     @Override
-    public String handle(String text, FeishuSender sender) {
+    public String handle(String text, FeishuSender sender, String chatId) {
         // 检查是否配置了GitHub Token
         if (!gitHubClient.isConfigured()) {
             return """

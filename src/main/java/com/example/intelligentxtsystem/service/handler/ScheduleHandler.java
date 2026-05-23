@@ -45,7 +45,7 @@ public class ScheduleHandler implements CommandHandler {
     }
 
     @Override
-    public String handle(String text, FeishuSender sender) {
+    public String handle(String text, FeishuSender sender, String chatId) {
         LocalDateTime endTime = null;
 
         // 先尝试匹配带结束时间的格式

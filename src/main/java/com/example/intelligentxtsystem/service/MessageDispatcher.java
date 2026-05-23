@@ -18,10 +18,10 @@ public class MessageDispatcher {
         this.handlers = handlers;
     }
 
-    public String dispatch(String text, FeishuSender sender) {
+    public String dispatch(String text, FeishuSender sender, String chatId) {
         for (CommandHandler handler : handlers) {
             if (handler.support(text)) {
-                return handler.handle(text, sender);
+                return handler.handle(text, sender, chatId);
             }
         }
         return "我不认识这个命令";

@@ -50,7 +50,7 @@ public class DevOpsHandler implements CommandHandler {
     }
 
     @Override
-    public String handle(String text, FeishuSender sender) {
+    public String handle(String text, FeishuSender sender, String chatId) {
         // /uptime
         if (text.trim().equals("/uptime") || text.trim().equals("uptime")) {
             return handleUptime();

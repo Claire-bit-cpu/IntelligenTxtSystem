@@ -64,6 +64,13 @@
             <artifactId>dashscope-sdk-java</artifactId>
             <version>2.16.1</version>
         </dependency>
+
+        <!-- SQLite JDBC（嵌入式搜索引擎 FTS5） -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.45.1.0</version>
+        </dependency>
     </dependencies>
 
     <build>

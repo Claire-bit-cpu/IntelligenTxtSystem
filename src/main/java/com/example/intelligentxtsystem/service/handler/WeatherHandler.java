@@ -23,7 +23,7 @@ public class WeatherHandler implements CommandHandler {
     }
 
     @Override
-    public String handle(String text, FeishuSender sender) {
+    public String handle(String text, FeishuSender sender, String chatId) {
         String city = text
                 .replaceAll("^(/weather|天气)\\s*", "")
                 .trim();

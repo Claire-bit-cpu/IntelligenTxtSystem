@@ -23,7 +23,7 @@ public class GroupHandler implements CommandHandler {
     }
 
     @Override
-    public String handle(String text, FeishuSender sender) {
+    public String handle(String text, FeishuSender sender, String chatId) {
         String groupName = text
                 .replaceAll("^(/group|建群|创建群)\\s*", "")
                 .trim();

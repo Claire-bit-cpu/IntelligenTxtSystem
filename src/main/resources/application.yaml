@@ -38,3 +38,9 @@ devops:
 
 server:
   port: 8080
+
+# 搜索引擎配置（SQLite FTS5）
+search:
+  index-path: ${SEARCH_INDEX_PATH:./search-index.db}
+  sync-interval-ms: ${SEARCH_SYNC_INTERVAL_MS:7200000}  # 全量同步间隔，默认2小时
+  max-sync-messages-per-chat: ${SEARCH_MAX_SYNC_MESSAGES:500}  # 每个群聊最多同步消息数

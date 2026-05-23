@@ -74,10 +74,10 @@ public class MessageProcessor {
             }
 
             // 分发处理
-            String reply = messageDispatcher.dispatch(text, callback.getEvent().getSender());
+            String chatId = callback.getEvent().getMessage().getChatId();
+            String reply = messageDispatcher.dispatch(text, callback.getEvent().getSender(), chatId);
 
             // 发送回复
-            String chatId = callback.getEvent().getMessage().getChatId();
             feishuClient.sendText(chatId, reply);
 
         } catch (Exception e) {

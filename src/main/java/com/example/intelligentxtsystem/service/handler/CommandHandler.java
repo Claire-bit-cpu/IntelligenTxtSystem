@@ -7,5 +7,5 @@ import com.example.intelligentxtsystem.dto.FeishuSender;
  */
 public interface CommandHandler {
     boolean support(String text);
-    String handle(String text, FeishuSender sender);
+    String handle(String text, FeishuSender sender, String chatId);
 }

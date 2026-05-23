@@ -27,7 +27,7 @@ public class TranslateHandler implements CommandHandler {
     }
 
     @Override
-    public String handle(String text, FeishuSender sender) {
+    public String handle(String text, FeishuSender sender, String chatId) {
         String content = text
                 .replaceAll("^(/translate|翻译)\\s*", "")
                 .trim();
