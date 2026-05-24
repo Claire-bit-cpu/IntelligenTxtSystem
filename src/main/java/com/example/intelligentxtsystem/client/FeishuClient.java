@@ -53,6 +53,7 @@ public class FeishuClient {
             return;
         }
 
+        log.info("正在获取飞书 token, appId={}, appSecret长度={}", appId, appSecret != null ? appSecret.length() : "null");
         String url = apiBaseUrl + "/auth/v3/tenant_access_token/internal";
         Map<String, String> body = Map.of(
                 "app_id", appId,
@@ -62,9 +63,28 @@ public class FeishuClient {
         ResponseEntity<Map> response = restTemplate.postForEntity(url, body, Map.class);
         Map<String, Object> result = response.getBody();
 
+        // 检查飞书 API 返回是否成功
+        Object codeObj = result.get("code");
+        if (codeObj != null && !"0".equals(String.valueOf(codeObj))) {
+            String errorMsg = (String) result.get("msg");
+            log.error("获取飞书 tenant_access_token 失败: code={}, msg={}", codeObj, errorMsg);
+            throw new RuntimeException("获取飞书 token 失败: " + errorMsg);
+        }
+
         tenantAccessToken = (String) result.get("tenant_access_token");
-        int expire = (int) result.get("expire");
+        if (tenantAccessToken == null) {
+            log.error("飞书 API 返回数据中缺少 tenant_access_token: {}", result);
+            throw new RuntimeException("飞书 API 返回数据中缺少 tenant_access_token");
+        }
+
+        Object expireObj = result.get("expire");
+        if (expireObj == null) {
+            log.warn("飞书 API 返回数据中缺少 expire 字段，使用默认值 7200 秒");
+            expireObj = 7200; // 默认 2 小时
+        }
+        int expire = (expireObj instanceof Number) ? ((Number) expireObj).intValue() : Integer.parseInt(expireObj.toString());
         expireTime = System.currentTimeMillis() + expire * 1000L - tokenBufferSeconds * 1000L;
+        log.info("飞书 tenant_access_token 获取成功，过期时间: {}", expireTime);
     }
 
     /**

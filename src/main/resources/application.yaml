@@ -37,7 +37,13 @@ devops:
   http-timeout-ms: ${DEVOPS_HTTP_TIMEOUT_MS:5000}
 
 server:
-  port: 8080
+  port: 8082
+
+# 通知配置
+notification:
+  db-path: ${NOTIFICATION_DB_PATH:./notification.db}
+  # 默认通知群聊 ID 列表（当数据库无配置时使用，逗号分隔）
+  default-chat-ids: ${NOTIFICATION_DEFAULT_CHAT_IDS:}
 
 # 搜索引擎配置（SQLite FTS5）
 search:
