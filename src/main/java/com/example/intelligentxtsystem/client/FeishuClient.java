@@ -649,19 +649,38 @@ public class FeishuClient {
     }
 
     /**
-     * 获取知识库空间下的文档节点列表（公开方法，用于指定空间同步）
+     * 获取知识库空间下的所有文档节点列表（递归获取所有子节点）
      * API: GET /wiki/v2/spaces/{space_id}/nodes
      * 权限: wiki:wiki:readonly
      */
     @SuppressWarnings("unchecked")
     public java.util.List<Map<String, Object>> fetchWikiNodesBySpaceId(String spaceId) {
         java.util.List<Map<String, Object>> allNodes = new java.util.ArrayList<>();
+        
+        // 递归获取所有节点（包括子文件夹中的文档）
+        fetchWikiNodesRecursive(spaceId, null, allNodes);
+        
+        log.info("获取知识库所有节点 spaceId={}, 共 {} 个", spaceId, allNodes.size());
+        return allNodes;
+    }
+
+    /**
+     * 递归获取知识库节点（包括子文件夹）
+     */
+    @SuppressWarnings("unchecked")
+    private void fetchWikiNodesRecursive(String spaceId, String parentNodeToken, 
+                                        java.util.List<Map<String, Object>> resultList) {
         String pageToken = null;
 
         do {
-            String url = apiBaseUrl + "/wiki/v2/spaces/" + spaceId + "/nodes?page_size=50";
+            StringBuilder urlBuilder = new StringBuilder(
+                    apiBaseUrl + "/wiki/v2/spaces/" + spaceId + "/nodes?page_size=50"
+            );
+            if (parentNodeToken != null) {
+                urlBuilder.append("&parent_node_token=").append(parentNodeToken);
+            }
             if (pageToken != null) {
-                url += "&page_token=" + pageToken;
+                urlBuilder.append("&page_token=").append(pageToken);
             }
 
             HttpHeaders headers = new HttpHeaders();
@@ -669,9 +688,12 @@ public class FeishuClient {
             HttpEntity<Void> entity = new HttpEntity<>(headers);
 
             try {
-                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+                ResponseEntity<String> response = restTemplate.exchange(
+                        urlBuilder.toString(), HttpMethod.GET, entity, String.class
+                );
                 String responseBody = response.getBody();
-                log.debug("获取知识库节点响应 spaceId={}: {}", spaceId, responseBody);
+                log.debug("获取知识库节点响应 spaceId={}, parentNodeToken={}: {}", 
+                         spaceId, parentNodeToken, responseBody);
 
                 Map<String, Object> result = objectMapper.readValue(responseBody, Map.class);
 
@@ -684,18 +706,29 @@ public class FeishuClient {
                 if (data == null) break;
 
                 java.util.List<Map<String, Object>> items = (java.util.List<Map<String, Object>>) data.get("items");
-                if (items != null) allNodes.addAll(items);
+                if (items != null) {
+                    for (Map<String, Object> node : items) {
+                        resultList.add(node);
+                        
+                        // 如果是文件夹，递归获取其子节点
+                        String objType = (String) node.getOrDefault("obj_type", "");
+                        if ("folder".equals(objType)) {
+                            String childNodeToken = (String) node.getOrDefault("node_token", "");
+                            if (!childNodeToken.isEmpty()) {
+                                log.debug("递归获取子文件夹节点: {}", childNodeToken);
+                                fetchWikiNodesRecursive(spaceId, childNodeToken, resultList);
+                            }
+                        }
+                    }
+                }
 
                 boolean hasMore = Boolean.TRUE.equals(data.get("has_more"));
                 pageToken = hasMore ? (String) data.get("page_token") : null;
             } catch (Exception e) {
-                log.error("获取知识库节点异常 spaceId={}", spaceId, e);
+                log.error("获取知识库节点异常 spaceId={}, parentNodeToken={}", spaceId, parentNodeToken, e);
                 break;
             }
         } while (pageToken != null);
-
-        log.debug("获取知识库节点 spaceId={}, 共 {} 个", spaceId, allNodes.size());
-        return allNodes;
     }
 
     /**
@@ -728,6 +761,68 @@ public class FeishuClient {
         } catch (Exception e) {
             log.warn("获取知识库空间名称异常 spaceId={}", spaceId, e);
             return "";
+        }
+    }
+
+    /**
+     * 发送卡片消息（交互式卡片）
+     * @param receiveId 接收者ID（群ID或用户OpenID）
+     * @param cardJson 卡片JSON字符串（interactive类型）
+     */
+    public void sendCard(String receiveId, String cardJson) {
+        ensureToken();
+
+        String url = apiBaseUrl + "/im/v1/messages?receive_id_type=chat_id";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantAccessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> body = Map.of(
+                "receive_id", receiveId,
+                "msg_type", "interactive",
+                "content", cardJson
+        );
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        try {
+            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+            log.debug("发送卡片消息响应: {}", response.getBody());
+        } catch (Exception e) {
+            log.error("发送卡片消息失败 receiveId={}", receiveId, e);
+        }
+    }
+
+    /**
+     * 发送消息（通用方法）
+     * @param message 消息体 Map，包含 receive_id, msg_type, content 等字段
+     */
+    public void sendMessage(Map<String, Object> message) {
+        ensureToken();
+
+        String url = apiBaseUrl + "/im/v1/messages?receive_id_type=chat_id";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantAccessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(message, headers);
+        try {
+            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+            log.debug("发送消息响应: {}", response.getBody());
+        } catch (Exception e) {
+            log.error("发送消息失败 message={}", message, e);
+        }
+    }
+
+    /**
+     * 将 Map 转换为 JSON 字符串（供 HelpHandler 等使用）
+     */
+    public static String mapToJson(Map<String, Object> map) {
+        try {
+            return new ObjectMapper().writeValueAsString(map);
+        } catch (Exception e) {
+            throw new RuntimeException("Map转JSON失败", e);
         }
     }
 

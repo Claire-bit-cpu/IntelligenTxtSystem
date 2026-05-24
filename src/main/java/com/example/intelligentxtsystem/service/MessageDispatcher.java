@@ -24,6 +24,7 @@ public class MessageDispatcher {
                 return handler.handle(text, sender, chatId);
             }
         }
-        return "我不认识这个命令";
+        // 没有匹配的命令，返回 null（不回复）
+        return null;
     }
 }

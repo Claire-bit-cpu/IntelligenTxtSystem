@@ -34,6 +34,7 @@ public class SearchSyncScheduler {
     private final FeishuClient feishuClient;
     private final SearchIndexService indexService;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
 
     @Value("${search.max-sync-messages-per-chat:500}")
     private int maxMessagesPerChat;
@@ -51,10 +52,11 @@ public class SearchSyncScheduler {
             "file", "doc", "docx", "sheet", "bitable", "wiki", "slides"
     );
 
-    public SearchSyncScheduler(FeishuClient feishuClient, SearchIndexService indexService, ObjectMapper objectMapper) {
+    public SearchSyncScheduler(FeishuClient feishuClient, SearchIndexService indexService, ObjectMapper objectMapper, NotificationService notificationService) {
         this.feishuClient = feishuClient;
         this.indexService = indexService;
         this.objectMapper = objectMapper;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -116,11 +118,13 @@ public class SearchSyncScheduler {
             return;
         }
 
+        long startTime = System.currentTimeMillis();
+        List<SearchIndexService.IndexDoc> docs = new ArrayList<>();
+        boolean success = false;
+        String errorMessage = null;
+
         try {
             log.info("开始全量同步...");
-            long startTime = System.currentTimeMillis();
-
-            List<SearchIndexService.IndexDoc> docs = new ArrayList<>();
 
             // 1. 同步群聊消息
             syncGroupMessages(docs);
@@ -134,12 +138,22 @@ public class SearchSyncScheduler {
             // 4. 重建索引
             indexService.rebuildIndex(docs);
 
+            success = true;
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("全量同步完成，共 {} 条文档，耗时 {}ms", docs.size(), elapsed);
         } catch (Exception e) {
+            errorMessage = e.getMessage();
             log.error("全量同步失败", e);
         } finally {
             syncing.set(false);
+        }
+
+        // 发送通知
+        if (success) {
+            int documentCount = docs.size();
+            notificationService.sendSyncSuccessNotification("全量同步", documentCount);
+        } else {
+            notificationService.sendSyncFailureNotification("全量同步", errorMessage != null ? errorMessage : "未知错误");
         }
     }
 
@@ -276,8 +290,13 @@ public class SearchSyncScheduler {
 
         // 飞书知识库 obj_type 非文档类型（只排除文件夹等容器节点）
         Set<String> excludeObjTypes = Set.of("folder");
-        // 支持的文档类型
+        // 支持的文档类型（可以获取内容的类型）
         Set<String> supportedDocTypes = Set.of("doc", "docx", "sheet", "bitable", "mindnote");
+        // 所有可索引的类型（包括无法获取内容的类型，如 PDF，仍会索引标题）
+        Set<String> indexableTypes = new java.util.HashSet<>();
+        indexableTypes.addAll(supportedDocTypes);
+        indexableTypes.add("pdf");
+        indexableTypes.add("file");
 
         int docCount = 0;
         for (String spaceId : targetSpaceIds) {
@@ -295,6 +314,11 @@ public class SearchSyncScheduler {
 
                     if (title.isEmpty()) continue;
                     if (excludeObjTypes.contains(objType)) continue;
+                    if (!indexableTypes.contains(objType)) {
+                        // 记录不支持的类型，但继续处理
+                        log.debug("跳过不支持的文档类型: objType={}, title={}", objType, title);
+                        continue;
+                    }
 
                     // 获取文档内容（如果是支持的文档类型）
                     String content = title; // 默认使用标题
@@ -305,6 +329,10 @@ public class SearchSyncScheduler {
                             content = docContent;
                             log.debug("成功获取文档内容，长度={}", docContent.length());
                         }
+                    } else if ("pdf".equals(objType) || "file".equals(objType)) {
+                        // PDF 或其他文件类型：只索引标题，内容为空
+                        log.debug("PDF/文件类型，仅索引标题: title={}, objType={}", title, objType);
+                        content = title; // 只使用文件名作为内容
                     }
 
                     String extra = String.format("{\"space_name\":\"%s\",\"obj_type\":\"%s\",\"node_token\":\"%s\"}",

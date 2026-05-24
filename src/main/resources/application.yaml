@@ -48,3 +48,12 @@ search:
   sync-chat-ids: ${SEARCH_SYNC_CHAT_IDS:auto}
   # 指定同步的知识库空间 ID 列表（为空则不同步任何知识库）
   sync-wiki-space-ids: ${SEARCH_SYNC_WIKI_SPACE_IDS:auto}
+
+# 通知配置（群聊配置已迁移到数据库 notification_chat_config 表，支持动态增删）
+# 使用以下接口管理群聊配置：
+# - GET  /api/notification/config/chats          查询所有群聊配置
+# - POST /api/notification/config/chats          添加群聊配置
+# - PUT  /api/notification/config/chats/{id}    更新群聊配置
+# - DEL  /api/notification/config/chats/{id}    删除群聊配置
+# - POST /api/notification/config/chats/{id}/enable  启用群聊
+# - POST /api/notification/config/chats/{id}/disable 禁用群聊
