@@ -46,15 +46,18 @@ public class SearchSyncScheduler {
 
     private final AtomicBoolean syncing = new AtomicBoolean(false);
 
+    private final NotificationService notificationService;
+
     // 文件/文档类消息类型
     private static final Set<String> FILE_TYPES = Set.of(
             "file", "doc", "docx", "sheet", "bitable", "wiki", "slides"
     );
 
-    public SearchSyncScheduler(FeishuClient feishuClient, SearchIndexService indexService, ObjectMapper objectMapper) {
+    public SearchSyncScheduler(FeishuClient feishuClient, SearchIndexService indexService, ObjectMapper objectMapper, NotificationService notificationService) {
         this.feishuClient = feishuClient;
         this.indexService = indexService;
         this.objectMapper = objectMapper;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -116,9 +119,13 @@ public class SearchSyncScheduler {
             return;
         }
 
+        boolean success = false;
+        String errorMessage = null;
+        int docCount = 0;
+        long startTime = System.currentTimeMillis();
+
         try {
             log.info("开始全量同步...");
-            long startTime = System.currentTimeMillis();
 
             List<SearchIndexService.IndexDoc> docs = new ArrayList<>();
 
@@ -134,12 +141,28 @@ public class SearchSyncScheduler {
             // 4. 重建索引
             indexService.rebuildIndex(docs);
 
+            docCount = docs.size();
+            success = true;
+
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("全量同步完成，共 {} 条文档，耗时 {}ms", docs.size(), elapsed);
+            log.info("全量同步完成，共 {} 条文档，耗时 {}ms", docCount, elapsed);
         } catch (Exception e) {
+            errorMessage = e.getMessage();
             log.error("全量同步失败", e);
         } finally {
             syncing.set(false);
+        }
+
+        // 同步完成后发送通知
+        long elapsed = System.currentTimeMillis() - startTime;
+        if (success) {
+            notificationService.sendNotification(
+                    "✅ 搜索索引同步完成\n⏰ 耗时: " + elapsed + "ms\n📝 详情: 已索引 " + docCount + " 条数据"
+            );
+        } else {
+            notificationService.sendNotification(
+                    "❌ 搜索索引同步失败\n⏰ 耗时: " + elapsed + "ms\n📝 详情: " + (errorMessage != null ? errorMessage : "未知错误")
+            );
         }
     }
 

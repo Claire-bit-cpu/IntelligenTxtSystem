@@ -83,7 +83,7 @@ public class CodeReviewHandler implements CommandHandler {
 
                     %s
 
-                    ━━━━━━━━━━━━━━━━━
+                    ━━━━━━━━━━━━━━━━
                     📋 PR 基本信息：
                     %s
                     """, prNumber, owner, repo, reviewResult, prInfo);

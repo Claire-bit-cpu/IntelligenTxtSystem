@@ -41,6 +41,10 @@ public class FeishuClient {
         this.objectMapper = objectMapper;
     }
 
+    public String getApiBaseUrl() {
+        return apiBaseUrl;
+    }
+
     private String tenantAccessToken;
     private long expireTime = 0;
 
@@ -111,6 +115,89 @@ public class FeishuClient {
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
         restTemplate.postForEntity(url, entity, String.class);
+    }
+
+    /**
+     * 发送消息卡片（Interactive Card）
+     * @param receiveId 接收人 open_id 或群 chat_id
+     * @param cardJson   卡片 JSON 字符串（飞书消息卡片格式）
+     */
+    public void sendCard(String receiveId, String cardJson) {
+        ensureToken();
+
+        String url = apiBaseUrl + "/im/v1/messages?receive_id_type=open_id";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantAccessToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        // receive_id_type=open_id 时 receive_id 为 open_id
+        // 如果 receiveId 以 "oc_" 开头，则改用 chat_id 模式
+        String receiveIdType = receiveId.startsWith("oc_") ? "chat_id" : "open_id";
+        String finalUrl = apiBaseUrl + "/im/v1/messages?receive_id_type=" + receiveIdType;
+
+        Map<String, Object> body = Map.of(
+                "receive_id", receiveId,
+                "msg_type", "interactive",
+                "content", cardJson
+        );
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        try {
+            restTemplate.postForEntity(finalUrl, entity, String.class);
+            log.info("消息卡片发送成功: receiveId={}", receiveId);
+        } catch (Exception e) {
+            log.error("消息卡片发送失败: receiveId={}", receiveId, e);
+            throw e;
+        }
+    }
+
+    /**
+     * 构建审批结果消息卡片 JSON
+     */
+    public static String buildApprovalCard(String approvalName, String applicantName,
+                                          String result, String comment, String detailUrl) {
+        // result: "APPROVED" / "REJECTED"
+        String resultText = "APPROVED".equalsIgnoreCase(result) ? "✅ 已通过" : "❌ 已拒绝";
+        String resultColor = "APPROVED".equalsIgnoreCase(result) ? "green" : "red";
+
+        return """
+                {
+                    "config": {"wide_screen_mode": true},
+                    "header": {
+                        "title": {"tag": "plain_text", "content": "审批结果通知"},
+                        "template": "%s"
+                    },
+                    "elements": [
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "**审批名称：** %s"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "**申请人：** %s"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "**审批结果：** %s"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "**审批意见：** %s"}},
+                        {"tag": "action", "actions": [
+                            {"tag": "button", "text": {"tag": "plain_text", "content": "查看详情"},
+                             "url": "%s", "type": "default"}
+                        ]}
+                    ]
+                }
+                """.formatted(
+                resultColor,
+                escapeJson(approvalName),
+                escapeJson(applicantName),
+                resultText,
+                escapeJson(comment != null ? comment : "无"),
+                detailUrl != null ? detailUrl : ""
+        );
+    }
+
+    /**
+     * 带 Token 的 GET 请求（供其他 Service 调用飞书 API）
+     */
+    public String getWithToken(String url) {
+        ensureToken();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantAccessToken);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        return restTemplate.exchange(url, org.springframework.http.HttpMethod.GET, entity, String.class).getBody();
     }
 
     private String calendarId;
@@ -752,9 +839,67 @@ public class FeishuClient {
     }
 
     /**
-     * 转义 JSON 字符串中的特殊字符
+     * 构建帮助中心交互式卡片 JSON（Schema 2.0）
+     * 标题：🤖 机器人帮助中心（蓝色）
+     * 点击按钮触发 card.action.trigger 回调，value.action 指定对应指令
      */
-    private String escapeJson(String text) {
+    public static String buildHelpCard() {
+        // 按钮 value 中的 action 字段会被 card.action.trigger 事件回传
+        return "{" +
+                "\"config\":{\"wide_screen_mode\":true}," +
+                "\"header\":{" +
+                "  \"title\":{\"tag\":\"plain_text\",\"content\":\"🤖 机器人帮助中心\"}," +
+                "  \"template\":\"blue\"," +
+                "}," +
+                "\"elements\":[" +
+
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**📌 基础指令**\"}}," +
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
+                "  \"content\":\"• `/weather <城市>` 查询天气\\n• `/translate <文本>` 中英互译\\n• `/schedule <时间> <事件>` 创建日程\"}}," +
+                "{\"tag\":\"action\",\"actions\":[" +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🌤 天气\"},\"value\":{\"action\":\"help_weather\"},\"type\":\"primary\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🌐 翻译\"},\"value\":{\"action\":\"help_translate\"},\"type\":\"primary\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"📅 日程\"},\"value\":{\"action\":\"help_schedule\"},\"type\":\"primary\"}" +
+                "]}," +
+
+                "{\"tag\":\"hr\"}," +
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**🏢 企业指令**\"}}," +
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
+                "  \"content\":\"• `/group <群名>` 创建群组\\n• `/search <关键词>` 搜索文档\\n• `/AI <问题>` AI智能问答\"}}," +
+                "{\"tag\":\"action\",\"actions\":[" +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"👥 建群\"},\"value\":{\"action\":\"help_group\"},\"type\":\"default\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🔍 搜索\"},\"value\":{\"action\":\"help_search\"},\"type\":\"default\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🤖 AI\"},\"value\":{\"action\":\"help_ai\"},\"type\":\"default\"}" +
+                "]}," +
+
+                "{\"tag\":\"hr\"}," +
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**🐙 GitHub 指令**\"}}," +
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
+                "  \"content\":\"• `/repo <owner/repo>` 查看仓库\\n• `/pr <owner/repo> <号>` 查看PR\\n• `/cr <owner/repo> <号>` 代码审查\"}}," +
+                "{\"tag\":\"action\",\"actions\":[" +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"📦 仓库\"},\"value\":{\"action\":\"help_repo\"},\"type\":\"default\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🔀 PR\"},\"value\":{\"action\":\"help_pr\"},\"type\":\"default\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🔍 审查\"},\"value\":{\"action\":\"help_cr\"},\"type\":\"default\"}" +
+                "]}," +
+
+                "{\"tag\":\"hr\"}," +
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**🔧 DevOps 工具**\"}}," +
+                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
+                "  \"content\":\"• `/uptime` 查看运行时间\\n• `/ping <主机>` 检测连通性\\n• `/deploy <环境>` 触发部署\"}}," +
+                "{\"tag\":\"action\",\"actions\":[" +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"⏱ uptime\"},\"value\":{\"action\":\"help_uptime\"},\"type\":\"default\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"📶 ping\"},\"value\":{\"action\":\"help_ping\"},\"type\":\"default\"}," +
+                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🚀 deploy\"},\"value\":{\"action\":\"help_deploy\"},\"type\":\"default\"}" +
+                "]}"+
+
+                "]" +
+                "}";
+    }
+
+    /**
+     * 转义 JSON 字符串中的特殊字符（静态方法，供 buildApprovalCard 调用）
+     */
+    private static String escapeJson(String text) {
         if (text == null) return "";
         return text
                 .replace("\\", "\\\\")

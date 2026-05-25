@@ -21,7 +21,7 @@ public class GitHubHandler implements CommandHandler {
     // /repo owner/repo
     private static final Pattern REPO_PATTERN =
             Pattern.compile("^(?:/repo|仓库)\\s+([^/]+)/([^\\s]+)");
-    
+
     // /pr owner/repo 123
     private static final Pattern PR_PATTERN =
             Pattern.compile("^(?:/pr|PR)\\s+([^/]+)/([^\\s]+)\\s+(\\d+)");
@@ -67,15 +67,15 @@ public class GitHubHandler implements CommandHandler {
 
         return """
                 ❌ 用法：
-                
+
                 📦 仓库查询：
                 /repo owner/repo
                 /repo octocat/Hello-World
-                
+
                 🔍 PR查询：
                 /pr owner/repo 123
                 /pr microsoft/vscode 12345
-                
+
                 💡 示例：
                 /repo facebook/react
                 /pr facebook/react 12345

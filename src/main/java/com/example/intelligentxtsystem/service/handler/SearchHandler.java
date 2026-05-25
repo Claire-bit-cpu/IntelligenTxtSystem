@@ -13,15 +13,6 @@ import java.util.Map;
 
 /**
  * 知识库搜索指令处理器
- * 指令格式：/search <关键词> 或 搜索 <关键词> 或 查询 <关键词>
- *
- * 搜索来源：
- * 1. 飞书官方 API（实时搜索群文件 + 知识库）
- * 2. 本地搜索引擎（SQLite FTS5，支持中文全文检索）
- *
- * 管理命令（仅群管理员可用）：
- * /search sync   - 手动触发索引同步
- * /search status - 查看索引状态
  */
 @Component
 public class SearchHandler implements CommandHandler {
@@ -41,18 +32,8 @@ public class SearchHandler implements CommandHandler {
         this.objectMapper = objectMapper;
     }
 
-    /**
-     * 检查用户是否为群管理员
-     * 
-     * @param senderOpenId 发送者的OpenID
-     * @param chatId 群聊ID
-     * @return true=是管理员，false=不是管理员或检查失败
-     */
     private boolean isGroupAdmin(String senderOpenId, String chatId) {
-        if (senderOpenId == null || chatId == null) {
-            return false;
-        }
-        
+        if (senderOpenId == null || chatId == null) return false;
         java.util.Set<String> adminIds = feishuClient.getChatAdminIds(chatId);
         return adminIds.contains(senderOpenId);
     }
@@ -70,7 +51,7 @@ public class SearchHandler implements CommandHandler {
 
         if (keyword.isEmpty()) {
             return """
-                    ❌ 用法：/search <关键词>
+                    ❹ 用法：/search <关键词>
                     
                     📋 示例：
                     /search 项目规范
@@ -85,37 +66,28 @@ public class SearchHandler implements CommandHandler {
             return "⚠️ 关键词长度不能超过200个字符";
         }
 
-        // 管理命令（需要管理员权限）
         if ("sync".equalsIgnoreCase(keyword) || "status".equalsIgnoreCase(keyword)) {
-            // 检查是否为群管理员
             String senderOpenId = sender != null ? sender.getOpenId() : null;
-            
             if (senderOpenId == null) {
-                log.warn("无法获取发送者OpenID，拒绝执行管理命令");
                 return """
-                        ❌ 无法验证权限
+                        ❹ 无法验证权限
                         
                         🔒 请确保在群聊中使用此命令
                         
                         💡 如果问题持续，请联系开发者
                         """;
             }
-            
             log.info("检查用户权限: senderOpenId={}, chatId={}", senderOpenId, chatId);
-            
             if (!isGroupAdmin(senderOpenId, chatId)) {
-                log.warn("用户权限不足: senderOpenId={}, chatId={}", senderOpenId, chatId);
                 return """
-                        ❌ 权限不足
+                        ❹ 权限不足
                         
                         🔒 /search sync 和 /search status 命令仅群管理员可用
                         
                         💡 请联系群管理员执行此操作
                         """;
             }
-
             log.info("用户权限验证通过: senderOpenId={}", senderOpenId);
-            
             if ("sync".equalsIgnoreCase(keyword)) {
                 return handleSync();
             } else {
@@ -128,7 +100,6 @@ public class SearchHandler implements CommandHandler {
             boolean found = false;
             boolean permissionDenied = false;
 
-            // 1. 搜索引擎（本地索引，速度快，支持全文检索）
             var indexResults = indexService.search(keyword, 5);
             if (!indexResults.isEmpty()) {
                 result.append("🔎 索引搜索：\n");
@@ -141,7 +112,6 @@ public class SearchHandler implements CommandHandler {
                 found = true;
             }
 
-            // 2. 实时 API 搜索：群内文件/文档消息
             String groupResult = feishuClient.searchGroupFiles(chatId, keyword);
             if ("PERMISSION_DENIED".equals(groupResult)) {
                 permissionDenied = true;
@@ -151,7 +121,6 @@ public class SearchHandler implements CommandHandler {
                 found = true;
             }
 
-            // 3. 实时 API 搜索：飞书知识库
             String wikiResult = feishuClient.searchDocuments(keyword);
             if (wikiResult != null) {
                 if (found) result.append("\n");
@@ -162,18 +131,18 @@ public class SearchHandler implements CommandHandler {
             if (!found) {
                 if (permissionDenied) {
                     return String.format("""
-                            🔍 关键词：%s
-                            
-                            ⚠️ 缺少读取群消息权限，无法实时搜索群内文件
-                            
-                            📌 请管理员在飞书开放平台为应用添加以下权限：
-                            • im:message.group_msg:readonly（读取群聊消息）
-                            • wiki:wiki:readonly（查看知识库）
-                            
-                            添加后需重新发布应用版本
-                            
-                            💡 可使用本地索引搜索，输入 /search sync 同步索引
-                            """, keyword);
+                        🔍 关键词：%s
+                        
+                        ⚠️ 缺少读取群消息权限，无法实时搜索群内文件
+                        
+                        📌 请管理员在飞书开放平台为应用添加以下权限：
+                        • im:message.group_msg:readonly
+                        • wiki:wiki:readonly
+                        
+                        添加后需重新发布应用版本
+                        
+                        💡 可使用本地索引搜索，输入 /search sync 同步索引
+                        """, keyword);
                 }
                 return String.format("""
                         🔍 关键词：%s
@@ -199,9 +168,6 @@ public class SearchHandler implements CommandHandler {
         }
     }
 
-    /**
-     * 处理 /search sync 命令
-     */
     private String handleSync() {
         if (syncScheduler.isSyncing()) {
             return "⏳ 索引同步正在进行中，请稍后再试";
@@ -220,14 +186,10 @@ public class SearchHandler implements CommandHandler {
         return "⏳ 索引同步正在进行中，请稍后再试";
     }
 
-    /**
-     * 处理 /search status 命令
-     */
     private String handleStatus() {
         int count = indexService.getDocumentCount();
         String lastSync = indexService.getLastSyncTime();
         boolean syncing = syncScheduler.isSyncing();
-
         return String.format("""
                 📊 搜索索引状态
                 
@@ -243,13 +205,8 @@ public class SearchHandler implements CommandHandler {
         );
     }
 
-    /**
-     * 格式化索引搜索结果的附加信息
-     */
     private String formatIndexDocInfo(SearchIndexService.IndexDoc doc) {
         StringBuilder sb = new StringBuilder();
-
-        // 解析 extra JSON
         String sourceLabel = switch (doc.source()) {
             case "group_file" -> "群文件";
             case "group_text" -> "群消息";
@@ -257,12 +214,9 @@ public class SearchHandler implements CommandHandler {
             default -> doc.source();
         };
         sb.append(String.format("   📁 来源：%s\n", sourceLabel));
-
-        // 尝试解析 extra 获取更多详情
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> extra = objectMapper.readValue(doc.extra(), Map.class);
-
             if ("group_file".equals(doc.source())) {
                 String fileType = (String) extra.getOrDefault("file_type", "");
                 if (!fileType.isEmpty()) sb.append(String.format("   📋 类型：%s\n", fileType));
@@ -277,14 +231,10 @@ public class SearchHandler implements CommandHandler {
                 String nodeToken = (String) extra.getOrDefault("node_token", "");
                 if (!nodeToken.isEmpty()) sb.append(String.format("   🔗 https://feishu.cn/wiki/%s\n", nodeToken));
             }
-        } catch (Exception e) {
-            // extra 解析失败，忽略
-        }
-
+        } catch (Exception e) {}
         if (!doc.createdTime().isEmpty()) {
             sb.append(String.format("   🕐 时间：%s\n", doc.createdTime()));
         }
-
         return sb.toString();
     }
 }

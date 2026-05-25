@@ -44,20 +44,19 @@ public class GroupHandler implements CommandHandler {
             return "⚠️ 群名长度不能超过50个字符";
         }
 
-        try {
-            String openId = sender != null ? sender.getOpenId() : null;
-            String result = feishuClient.createGroup(groupName, openId);
+        String openId = sender != null ? sender.getOpenId() : null;
+        String result = feishuClient.createGroup(groupName, openId);
 
-            if ("success".equals(result)) {
-                return String.format("""
+        if ("success".equals(result)) {
+            return String.format("""
                         ✅ 群组创建成功！
                         
                         📋 群名：%s
                         
                         💡 请在飞书中刷新查看新群组
                         """, groupName);
-            } else {
-                return String.format("""
+        } else {
+            return String.format("""
                         ⚠️ 群组创建失败
                         
                         📋 群名：%s
@@ -65,9 +64,6 @@ public class GroupHandler implements CommandHandler {
                         
                         请检查飞书应用权限后重试
                         """, groupName, result);
-            }
-        } catch (Exception e) {
-            return "⚠️ 创建群组时发生错误，请稍后再试";
         }
     }
 }

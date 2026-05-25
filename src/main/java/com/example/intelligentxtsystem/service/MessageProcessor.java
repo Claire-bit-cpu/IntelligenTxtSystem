@@ -77,8 +77,13 @@ public class MessageProcessor {
             String chatId = callback.getEvent().getMessage().getChatId();
             String reply = messageDispatcher.dispatch(text, callback.getEvent().getSender(), chatId);
 
-            // 发送回复
-            feishuClient.sendText(chatId, reply);
+            // 发送回复（支持卡片：以 __CARD__ 前缀标记卡片消息）
+            if (reply != null && reply.startsWith("__CARD__")) {
+                String cardJson = reply.substring("__CARD__".length());
+                feishuClient.sendCard(chatId, cardJson);
+            } else if (reply != null) {
+                feishuClient.sendText(chatId, reply);
+            }
 
         } catch (Exception e) {
             log.error("异步处理消息事件异常", e);

@@ -25,10 +25,10 @@ public class DevOpsHandler implements CommandHandler {
 
     private final long startTime = System.currentTimeMillis();
 
-    @Value("${devops.ping-timeout-ms}")
+    @Value("${devops.ping-timeout-ms:5000}")
     private int pingTimeoutMs;
 
-    @Value("${devops.http-timeout-ms}")
+    @Value("${devops.http-timeout-ms:10000}")
     private int httpTimeoutMs;
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
@@ -74,7 +74,7 @@ public class DevOpsHandler implements CommandHandler {
                 ❌ 用法：
 
                 🔧 DevOps 工具
-                ─────────────────────────
+                ────────────────────────
                 /uptime        查看运行时间
                 /ping <主机>   检测连通性
                 /deploy <环境>  模拟部署流程
@@ -100,7 +100,7 @@ public class DevOpsHandler implements CommandHandler {
                 📊 系统状态
 
                 🕐 当前时间：%s
-                ⏱️  运行时间：%d天 %d小时 %d分钟 %d秒
+                ⏱  运行时间：%d天 %d小时 %d分钟 %d秒
                 ✅ 状态：正常运行
                 """, now, days, hours, minutes, seconds);
     }
