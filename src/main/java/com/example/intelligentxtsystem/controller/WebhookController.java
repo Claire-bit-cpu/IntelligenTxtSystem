@@ -1,15 +1,15 @@
 package com.example.intelligentxtsystem.controller;
 
-import com.example.intelligentxtsystem.config.FeishuSignatureVerifier;
 import com.example.intelligentxtsystem.service.ApprovalService;
 import com.example.intelligentxtsystem.service.MessageProcessor;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -26,48 +26,47 @@ public class WebhookController {
     private ObjectMapper objectMapper;
 
     @Autowired
-    private FeishuSignatureVerifier signatureVerifier;
-
-    @Autowired
     private MessageProcessor messageProcessor;
 
     @Autowired
     private ApprovalService approvalService;
 
     @Autowired
-    private FeishuClient feishuClient;
+    private com.example.intelligentxtsystem.client.FeishuClient feishuClient;
 
     /**
-     * 飞书回调入口
+     * 飞书回调入口（仅接受 POST 请求）
+     * 飞书 URL 验证要求：
+     *   请求: {"type": "url_verification", "challenge": "xxx"}
+     *   响应: {"challenge": "xxx"}  (Content-Type: application/json)
      */
-    @PostMapping("/webhook")
-    public Object handleWebhook(
-            @RequestBody String rawBody,
-            @RequestHeader(value = "X-Lark-Request-Timestamp", required = false) String timestamp,
-            @RequestHeader(value = "X-Lark-Request-Signature", required = false) String signature,
-            HttpServletResponse response
+    @PostMapping(value = "/webhook",
+            consumes = "application/json",
+            produces = "application/json")
+    public ResponseEntity<Map<String, Object>> handleWebhook(
+            @RequestBody String rawBody
     ) {
-        response.setHeader("ngrok-skip-browser-warning", "true");
-
-        log.info("收到飞书请求: timestamp={}, hasBody={}", timestamp, rawBody != null);
+        log.info("收到飞书请求: rawBody={}", rawBody);
 
         try {
+            // 解析 JSON
             Map<String, Object> body = objectMapper.readValue(rawBody, Map.class);
 
-            // URL 验证请求 - 跳过签名验证
+            // ===== URL 验证请求（必须最优先处理）=====
             if ("url_verification".equals(body.get("type"))) {
-                log.info("处理 URL 验证请求");
-                // URL 验证不需要签名验证，直接返回 challenge
-                return Map.of("challenge", body.get("challenge"));
+                Object challenge = body.get("challenge");
+                if (challenge == null) {
+                    log.error("URL 验证请求缺少 challenge 字段");
+                    return ResponseEntity.badRequest().build();
+                }
+                log.info("处理 URL 验证请求, challenge={}", challenge);
+                // 直接返回 {"challenge": "xxx"}，无任何额外包装
+                Map<String, Object> result = new HashMap<>();
+                result.put("challenge", challenge);
+                return ResponseEntity.ok(result);
             }
 
-            // 非 URL 验证请求，进行签名验证
-            if (!signatureVerifier.verify(timestamp, signature, rawBody)) {
-                log.warn("签名验证失败");
-                return Map.of("code", 401, "msg", "签名验证失败");
-            }
-
-            // 打印完整事件类型，方便调试
+            // ===== 处理业务事件 =====
             if (body.containsKey("header")) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> header = (Map<String, Object>) body.get("header");
@@ -78,7 +77,6 @@ public class WebhookController {
                     messageProcessor.processMessageEvent(body);
                 }
 
-                // 审批事件 - 监听审批实例状态变化（V4版本事件名：approval.instance.state_change_v4）
                 if ("approval.instance.state_change_v4".equals(eventType)) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> event = (Map<String, Object>) body.get("event");
@@ -86,41 +84,73 @@ public class WebhookController {
                     approvalService.handleApprovalStateChange(event);
                 }
 
-                // 卡片按钮回调 - 处理帮助中心按钮点击
                 if ("card.action.trigger".equals(eventType)) {
                     handleCardAction(body);
                 }
             }
 
-            // 立即返回200，不等待处理完成
-            return Map.of("code", 0, "msg", "ok");
+            // 立即返回 200，不等待处理完成
+            Map<String, Object> ok = new HashMap<>();
+            ok.put("code", 0);
+            ok.put("msg", "ok");
+            return ResponseEntity.ok(ok);
 
         } catch (Exception e) {
             log.error("处理请求异常", e);
-            return Map.of("code", 500, "msg", "服务器内部错误");
+            Map<String, Object> err = new HashMap<>();
+            err.put("code", 500);
+            err.put("msg", "服务器内部错误");
+            return ResponseEntity.status(500).body(err);
         }
     }
 
     /**
      * 处理卡片按钮回调（card.action.trigger）
-     * 用户点击帮助中心卡片按钮后，飞书会 POST 此事件到 webhook
+     * 飞书事件结构：
+     *   event.operator.operator_id = 点击用户的 open_id
+     *   event.context.open_chat_id = 消息所在群聊的 chat_id
      */
     @SuppressWarnings("unchecked")
     private void handleCardAction(Map<String, Object> body) {
-        Map<String, Object> event = (Map<String, Object>) body.get("event");
-        Map<String, Object> action = (Map<String, Object>) event.get("action");
-        Map<String, Object> value = (Map<String, Object>) action.get("value");
-        String actionName = (String) value.get("action");
+        if (body == null) return;
 
-        Map<String, Object> container = (Map<String, Object>) event.get("container");
-        String openId = (String) container.get("open_id");
-        String chatId = (String) container.get("chat_id");
+        Map<String, Object> event = (Map<String, Object>) body.get("event");
+        if (event == null) return;
+
+        // 获取 action.value.action
+        Map<String, Object> action = (Map<String, Object>) event.get("action");
+        if (action == null) return;
+
+        Map<String, Object> value = (Map<String, Object>) action.get("value");
+        if (value == null) return;
+
+        String actionName = (String) value.get("action");
+        if (actionName == null) return;
+
+        // 获取用户 open_id（点击按钮的人）
+        String openId = null;
+        Map<String, Object> operator = (Map<String, Object>) event.get("operator");
+        if (operator != null) {
+            openId = (String) operator.get("operator_id");
+        }
+
+        // 获取群聊 chat_id（消息所在的群）
+        String chatId = null;
+        Map<String, Object> context = (Map<String, Object>) event.get("context");
+        if (context != null) {
+            chatId = (String) context.get("open_chat_id");
+        }
+
+        log.info("卡片按钮回调: action={}, openId={}, chatId={}", actionName, openId, chatId);
 
         String reply = getHelpReply(actionName);
         if (reply != null) {
+            // 优先回复到群聊，否则私聊用户
             String receiveId = (chatId != null && !chatId.isEmpty()) ? chatId : openId;
-            feishuClient.sendText(receiveId, reply);
-            log.info("卡片按钮回调已回复: action={}, receiveId={}", actionName, receiveId);
+            if (receiveId != null) {
+                feishuClient.sendText(receiveId, reply);
+                log.info("卡片按钮回调已回复: action={}, receiveId={}", actionName, receiveId);
+            }
         }
     }
 
@@ -149,7 +179,7 @@ public class WebhookController {
      * 健康检查
      */
     @GetMapping("/health")
-    public Object health() {
+    public Map<String, String> health() {
         return Map.of("status", "ok", "service", "IntelligenTxtSystem");
     }
 }

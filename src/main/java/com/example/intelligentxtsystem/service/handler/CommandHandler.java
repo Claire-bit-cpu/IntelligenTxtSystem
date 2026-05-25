@@ -1,6 +1,6 @@
-package com.example.intelligenttxtsystem.service.handler;
+package com.example.intelligentxtsystem.service.handler;
 
-import com.example.intelligenttxtsystem.dto.FeishuSender;
+import com.example.intelligentxtsystem.dto.FeishuSender;
 
 /**
  * 命令处理器接口，是整个指令系统的最小可扩展单元

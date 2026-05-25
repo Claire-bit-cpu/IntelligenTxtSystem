@@ -14,6 +14,9 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -844,56 +847,82 @@ public class FeishuClient {
      * 点击按钮触发 card.action.trigger 回调，value.action 指定对应指令
      */
     public static String buildHelpCard() {
-        // 按钮 value 中的 action 字段会被 card.action.trigger 事件回传
-        return "{" +
-                "\"config\":{\"wide_screen_mode\":true}," +
-                "\"header\":{" +
-                "  \"title\":{\"tag\":\"plain_text\",\"content\":\"🤖 机器人帮助中心\"}," +
-                "  \"template\":\"blue\"," +
-                "}," +
-                "\"elements\":[" +
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> card = new HashMap<>();
+            card.put("config", Map.of("wide_screen_mode", true));
 
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**📌 基础指令**\"}}," +
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
-                "  \"content\":\"• `/weather <城市>` 查询天气\\n• `/translate <文本>` 中英互译\\n• `/schedule <时间> <事件>` 创建日程\"}}," +
-                "{\"tag\":\"action\",\"actions\":[" +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🌤 天气\"},\"value\":{\"action\":\"help_weather\"},\"type\":\"primary\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🌐 翻译\"},\"value\":{\"action\":\"help_translate\"},\"type\":\"primary\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"📅 日程\"},\"value\":{\"action\":\"help_schedule\"},\"type\":\"primary\"}" +
-                "]}," +
+            // header
+            Map<String, Object> header = new HashMap<>();
+            header.put("title", Map.of("tag", "plain_text", "content", "🤖 机器人帮助中心"));
+            header.put("template", "blue");
+            card.put("header", header);
 
-                "{\"tag\":\"hr\"}," +
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**🏢 企业指令**\"}}," +
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
-                "  \"content\":\"• `/group <群名>` 创建群组\\n• `/search <关键词>` 搜索文档\\n• `/AI <问题>` AI智能问答\"}}," +
-                "{\"tag\":\"action\",\"actions\":[" +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"👥 建群\"},\"value\":{\"action\":\"help_group\"},\"type\":\"default\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🔍 搜索\"},\"value\":{\"action\":\"help_search\"},\"type\":\"default\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🤖 AI\"},\"value\":{\"action\":\"help_ai\"},\"type\":\"default\"}" +
-                "]}," +
+            // elements
+            List<Map<String, Object>> elements = new ArrayList<>();
 
-                "{\"tag\":\"hr\"}," +
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**🐙 GitHub 指令**\"}}," +
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
-                "  \"content\":\"• `/repo <owner/repo>` 查看仓库\\n• `/pr <owner/repo> <号>` 查看PR\\n• `/cr <owner/repo> <号>` 代码审查\"}}," +
-                "{\"tag\":\"action\",\"actions\":[" +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"📦 仓库\"},\"value\":{\"action\":\"help_repo\"},\"type\":\"default\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🔀 PR\"},\"value\":{\"action\":\"help_pr\"},\"type\":\"default\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🔍 审查\"},\"value\":{\"action\":\"help_cr\"},\"type\":\"default\"}" +
-                "]}," +
+            // 基础指令
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**📌 基础指令**")));
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/weather <城市>` 查询天气\n• `/translate <文本>` 中英互译\n• `/schedule <时间> <事件>` 创建日程")));
+            elements.add(buildButtonGroup(
+                    Map.of("action", "help_weather"), "🌤 天气", "primary",
+                    Map.of("action", "help_translate"), "🌐 翻译", "primary",
+                    Map.of("action", "help_schedule"), "📅 日程", "primary"
+            ));
 
-                "{\"tag\":\"hr\"}," +
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\",\"content\":\"**🔧 DevOps 工具**\"}}," +
-                "{\"tag\":\"div\",\"text\":{\"tag\":\"lark_md\"," +
-                "  \"content\":\"• `/uptime` 查看运行时间\\n• `/ping <主机>` 检测连通性\\n• `/deploy <环境>` 触发部署\"}}," +
-                "{\"tag\":\"action\",\"actions\":[" +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"⏱ uptime\"},\"value\":{\"action\":\"help_uptime\"},\"type\":\"default\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"📶 ping\"},\"value\":{\"action\":\"help_ping\"},\"type\":\"default\"}," +
-                "  {\"tag\":\"button\",\"text\":{\"tag\":\"plain_text\",\"content\":\"🚀 deploy\"},\"value\":{\"action\":\"help_deploy\"},\"type\":\"default\"}" +
-                "]}"+
+            elements.add(Map.of("tag", "hr"));
 
-                "]" +
-                "}";
+            // 企业指令
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🏢 企业指令**")));
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/group <群名>` 创建群组\n• `/search <关键词>` 搜索文档\n• `/AI <问题>` AI智能问答")));
+            elements.add(buildButtonGroup(
+                    Map.of("action", "help_group"), "👥 建群", "default",
+                    Map.of("action", "help_search"), "🔍 搜索", "default",
+                    Map.of("action", "help_ai"), "🤖 AI", "default"
+            ));
+
+            elements.add(Map.of("tag", "hr"));
+
+            // GitHub 指令
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🐙 GitHub 指令**")));
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/repo <owner/repo>` 查看仓库\n• `/pr <owner/repo> <号>` 查看PR\n• `/cr <owner/repo> <号>` 代码审查")));
+            elements.add(buildButtonGroup(
+                    Map.of("action", "help_repo"), "📦 仓库", "default",
+                    Map.of("action", "help_pr"), "🔀 PR", "default",
+                    Map.of("action", "help_cr"), "🔍 审查", "default"
+            ));
+
+            elements.add(Map.of("tag", "hr"));
+
+            // DevOps 工具
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🔧 DevOps 工具**")));
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/uptime` 查看运行时间\n• `/ping <主机>` 检测连通性\n• `/deploy <环境>` 触发部署")));
+            elements.add(buildButtonGroup(
+                    Map.of("action", "help_uptime"), "⏱ uptime", "default",
+                    Map.of("action", "help_ping"), "📶 ping", "default",
+                    Map.of("action", "help_deploy"), "🚀 deploy", "default"
+            ));
+
+            card.put("elements", elements);
+            return mapper.writeValueAsString(card);
+        } catch (Exception e) {
+            log.error("构建帮助卡片失败", e);
+            return "{}";
+        }
+    }
+
+    /**
+     * 构建按钮组（辅助方法）
+     */
+    private static Map<String, Object> buildButtonGroup(
+            Map<String, String> value1, String text1, String type1,
+            Map<String, String> value2, String text2, String type2,
+            Map<String, String> value3, String text3, String type3) {
+        List<Map<String, Object>> actions = new ArrayList<>();
+        actions.add(Map.of("tag", "button", "text", Map.of("tag", "plain_text", "content", text1), "value", value1, "type", type1));
+        actions.add(Map.of("tag", "button", "text", Map.of("tag", "plain_text", "content", text2), "value", value2, "type", type2));
+        actions.add(Map.of("tag", "button", "text", Map.of("tag", "plain_text", "content", text3), "value", value3, "type", type3));
+        return Map.of("tag", "action", "actions", actions);
     }
 
     /**

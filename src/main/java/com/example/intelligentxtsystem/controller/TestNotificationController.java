@@ -31,7 +31,7 @@ import java.util.Map;
  *    - GET /test/notification/config
  */
 @RestController
-@RequestMapping("/test/notification")
+@RequestMapping("/test/notify")
 public class TestNotificationController {
 
     private static final Logger log = LoggerFactory.getLogger(TestNotificationController.class);

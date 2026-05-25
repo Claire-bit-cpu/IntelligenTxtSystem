@@ -195,4 +195,110 @@ public class NotificationConfigService {
         public String getUpdatedAt() { return updatedAt; }
         public void setUpdatedAt(String updatedAt) { this.updatedAt = updatedAt; }
     }
+
+    /**
+     * ChatConfig 是 NotificationConfig 的别名，保持 API 兼容
+     */
+    public static class ChatConfig extends NotificationConfig {
+    }
+
+    /**
+     * 获取所有群聊配置（ChatConfig 形式，用于 API 兼容）
+     */
+    public List<ChatConfig> getAllChatConfigs() {
+        List<NotificationConfig> configs = getAllConfigs();
+        List<ChatConfig> result = new ArrayList<>();
+        for (NotificationConfig c : configs) {
+            ChatConfig cc = new ChatConfig();
+            cc.setId(c.getId());
+            cc.setChatId(c.getChatId());
+            cc.setChatName(c.getChatName());
+            cc.setDescription(c.getDescription());
+            cc.setEnabled(c.isEnabled());
+            cc.setCreatedAt(c.getCreatedAt());
+            cc.setUpdatedAt(c.getUpdatedAt());
+            result.add(cc);
+        }
+        return result;
+    }
+
+    /**
+     * 获取所有启用的群聊配置（ChatConfig 形式）
+     */
+    public List<ChatConfig> getEnabledChatConfigs() {
+        List<ChatConfig> all = getAllChatConfigs();
+        List<ChatConfig> result = new ArrayList<>();
+        for (ChatConfig c : all) {
+            if (c.isEnabled()) {
+                result.add(c);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 启用群聊配置（按 ID）
+     */
+    public boolean enableChatConfig(Long id) {
+        try {
+            String sql = "UPDATE " + TABLE_NAME + " SET enabled = 1, updated_at = datetime('now', 'localtime') WHERE id = ?";
+            try (Connection conn = getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setLong(1, id);
+                int rows = pstmt.executeUpdate();
+                if (rows > 0) {
+                    log.info("启用群聊配置: id={}", id);
+                    return true;
+                }
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("启用群聊配置失败: id={}", id, e);
+            return false;
+        }
+    }
+
+    /**
+     * 禁用群聊配置（按 ID）
+     */
+    public boolean disableChatConfig(Long id) {
+        try {
+            String sql = "UPDATE " + TABLE_NAME + " SET enabled = 0, updated_at = datetime('now', 'localtime') WHERE id = ?";
+            try (Connection conn = getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setLong(1, id);
+                int rows = pstmt.executeUpdate();
+                if (rows > 0) {
+                    log.info("禁用群聊配置: id={}", id);
+                    return true;
+                }
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("禁用群聊配置失败: id={}", id, e);
+            return false;
+        }
+    }
+
+    /**
+     * 删除群聊配置（按 ID）
+     */
+    public boolean deleteChatConfig(Long id) {
+        try {
+            String sql = "DELETE FROM " + TABLE_NAME + " WHERE id = ?";
+            try (Connection conn = getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setLong(1, id);
+                int rows = pstmt.executeUpdate();
+                if (rows > 0) {
+                    log.info("删除群聊配置: id={}", id);
+                    return true;
+                }
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("删除群聊配置失败: id={}", id, e);
+            return false;
+        }
+    }
 }
