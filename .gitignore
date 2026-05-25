@@ -14,7 +14,7 @@ target/
 .sts4-cache
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 *.iws
 *.iml
 *.ipr
@@ -32,5 +32,15 @@ build/
 ### VS Code ###
 .vscode/
 
-# SQLite database
-search-index.db*
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Build output
+/target/
+*.class
+
+# IDE
+.idea/
+.vscode/
