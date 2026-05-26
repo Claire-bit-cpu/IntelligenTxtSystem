@@ -3,11 +3,11 @@ package com.example.intelligentxtsystem.client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -115,12 +115,94 @@ public class GitHubClient {
      * @param limit 返回条数
      * @return 提交列表
      */
-    @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getCommits(String owner, String repo, int limit) {
-        String url = apiUrl + "/repos/" + owner + "/" + repo + "/commits?per_page=" + limit;
-        ResponseEntity<List> response = executeGet(url, List.class);
-        if (response != null && response.getBody() != null) {
-            return response.getBody();
+        return getCommits(owner, repo, limit, null);
+    }
+    
+    /**
+     * 获取仓库最近提交日志（可指定分支）
+     * @param owner 仓库所有者
+     * @param repo 仓库名称
+     * @param limit 返回条数
+     * @param branch 分支名称（可选，null 表示默认分支）
+     * @return 提交列表
+     */
+    public List<Map<String, Object>> getCommits(String owner, String repo, int limit, String branch) {
+        StringBuilder urlBuilder = new StringBuilder(apiUrl)
+            .append("/repos/").append(owner).append("/").append(repo)
+            .append("/commits?per_page=").append(limit);
+        
+        if (branch != null && !branch.isEmpty()) {
+            urlBuilder.append("&sha=").append(branch);
+        }
+        
+        String url = urlBuilder.toString();
+        
+        HttpHeaders headers = new HttpHeaders();
+        if (token != null && !token.isEmpty()) {
+            headers.set("Authorization", "Bearer " + token);
+        }
+        headers.set("Accept", "application/vnd.github.v3+json");
+        
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        
+        try {
+            logger.info("【调试】开始调用GitHub API获取提交日志: url={}, owner={}, repo={}, limit={}", url, owner, repo, limit);
+            
+            ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
+                url, 
+                HttpMethod.GET, 
+                entity, 
+                new ParameterizedTypeReference<List<Map<String, Object>>>() {}
+            );
+            
+            logger.info("【调试】GitHub API响应状态码: {}", response.getStatusCode());
+            
+            // 打印响应头中的速率限制信息
+            HttpHeaders responseHeaders = response.getHeaders();
+            if (responseHeaders != null) {
+                logger.info("【调试】响应头 - RateLimit-Remaining: {}", responseHeaders.getFirst("X-RateLimit-Remaining"));
+                logger.info("【调试】响应头 - RateLimit-Limit: {}", responseHeaders.getFirst("X-RateLimit-Limit"));
+                logger.info("【调试】响应头 - RateLimit-Reset: {}", responseHeaders.getFirst("X-RateLimit-Reset"));
+            }
+            
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                int actualSize = response.getBody().size();
+                logger.info("【调试】成功获取提交日志: 请求条数={}, 实际返回条数={}", limit, actualSize);
+                
+                // 如果返回条数少于请求条数，打印警告
+                if (actualSize < limit) {
+                    logger.warn("【调试】警告：实际返回条数({})少于请求条数({})，可能原因：1)仓库提交不足 2)API权限限制 3)API返回被截断", actualSize, limit);
+                }
+                
+                // 打印前3条提交的简要信息（用于调试）
+                int printCount = Math.min(3, actualSize);
+                for (int i = 0; i < printCount; i++) {
+                    Map<String, Object> commit = response.getBody().get(i);
+                    String sha = (String) commit.get("sha");
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> commitInfo = (Map<String, Object>) commit.get("commit");
+                    String message = commitInfo != null ? (String) commitInfo.get("message") : "N/A";
+                    if (message != null && message.length() > 50) {
+                        message = message.substring(0, 50) + "...";
+                    }
+                    logger.info("【调试】提交[{}]: sha={}, message={}", i + 1, sha != null ? sha.substring(0, 8) : "N/A", message);
+                }
+                
+                return response.getBody();
+            } else {
+                logger.error("【调试】GitHub API返回非成功状态码: status={}, body={}", response.getStatusCode(), response.getBody());
+            }
+        } catch (Exception e) {
+            logger.error("【调试】获取提交日志失败: url={}", url, e);
+            
+            // 尝试获取更多错误信息
+            if (e instanceof org.springframework.web.client.HttpClientErrorException) {
+                org.springframework.web.client.HttpClientErrorException httpError = 
+                    (org.springframework.web.client.HttpClientErrorException) e;
+                logger.error("【调试】HTTP错误状态码: {}", httpError.getStatusCode());
+                logger.error("【调试】HTTP错误响应体: {}", httpError.getResponseBodyAsString());
+            }
         }
         return null;
     }
@@ -203,12 +285,30 @@ public String getBranchSha(String owner, String repo, String branch) {
      * @param repo 仓库名称
      * @return PR 列表
      */
-    @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getPullRequests(String owner, String repo) {
         String url = apiUrl + "/repos/" + owner + "/" + repo + "/pulls?state=open";
-        ResponseEntity<List> response = executeGet(url, List.class);
-        if (response != null && response.getBody() != null) {
-            return response.getBody();
+        
+        HttpHeaders headers = new HttpHeaders();
+        if (token != null && !token.isEmpty()) {
+            headers.set("Authorization", "Bearer " + token);
+        }
+        headers.set("Accept", "application/vnd.github.v3+json");
+        
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        
+        try {
+            ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
+                url, 
+                HttpMethod.GET, 
+                entity, 
+                new ParameterizedTypeReference<List<Map<String, Object>>>() {}
+            );
+            
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                return response.getBody();
+            }
+        } catch (Exception e) {
+            logger.error("获取PR列表失败: url={}", url, e);
         }
         return null;
     }
@@ -308,9 +408,23 @@ public String getBranchSha(String owner, String repo, String branch) {
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
         try {
-            return restTemplate.exchange(url, HttpMethod.GET, entity, responseType);
+            logger.debug("【调试】executeGet 开始: url={}, responseType={}", url, responseType.getSimpleName());
+            
+            ResponseEntity<T> response = restTemplate.exchange(url, HttpMethod.GET, entity, responseType);
+            
+            logger.debug("【调试】executeGet 成功: url={}, status={}", url, response.getStatusCode());
+            return response;
         } catch (Exception e) {
-            logger.error("GitHub API GET 请求失败: url={}", url, e);
+            logger.error("【调试】GitHub API GET 请求失败: url={}", url, e);
+            
+            // 尝试获取更多错误信息
+            if (e instanceof org.springframework.web.client.HttpClientErrorException) {
+                org.springframework.web.client.HttpClientErrorException httpError = 
+                    (org.springframework.web.client.HttpClientErrorException) e;
+                logger.error("【调试】HTTP错误状态码: {}", httpError.getStatusCode());
+                logger.error("【调试】HTTP错误响应体: {}", httpError.getResponseBodyAsString());
+            }
+            
             return null;
         }
     }
