@@ -61,15 +61,15 @@ public class SearchSyncScheduler {
     }
 
     /**
-     * 启动后延迟1分钟执行首次同步
+     * 启动后延迟1分钟执行首次同步（不发送通知）
      */
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         new Thread(() -> {
             try {
                 Thread.sleep(60000); // 等待应用完全就绪
-                log.info("启动后首次同步开始...");
-                fullSync();
+                log.info("启动后首次同步开始（不发送通知）...");
+                fullSyncWithoutNotification();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -153,16 +153,76 @@ public class SearchSyncScheduler {
             syncing.set(false);
         }
 
-        // 同步完成后发送通知
+        // 同步完成后发送通知（只在有实际数据时才发送成功通知）
         long elapsed = System.currentTimeMillis() - startTime;
         if (success) {
-            notificationService.sendNotification(
-                    "✅ 搜索索引同步完成\n⏰ 耗时: " + elapsed + "ms\n📝 详情: 已索引 " + docCount + " 条数据"
-            );
+            if (docCount > 0) {
+                notificationService.sendNotification(
+                        "✅ 搜索索引同步完成\n⏰ 耗时: " + elapsed + "ms\n📝 详情: 已索引 " + docCount + " 条数据"
+                );
+            } else {
+                log.info("同步完成但未索引到任何数据，跳过通知发送");
+            }
         } else {
+            // 失败时也发送通知（用于排查问题）
             notificationService.sendNotification(
                     "❌ 搜索索引同步失败\n⏰ 耗时: " + elapsed + "ms\n📝 详情: " + (errorMessage != null ? errorMessage : "未知错误")
             );
+        }
+    }
+
+    /**
+     * 手动触发同步（异步执行，不发送通知）
+     * 用于应用启动时的首次同步
+     */
+    public boolean triggerSyncAsyncWithoutNotification() {
+        if (!syncing.compareAndSet(false, true)) {
+            return false; // 已在同步中
+        }
+        new Thread(() -> {
+            try {
+                fullSyncWithoutNotification();
+            } finally {
+                syncing.set(false);
+            }
+        }, "search-sync-manual").start();
+        return true;
+    }
+
+    /**
+     * 全量同步：飞书 API → SQLite FTS5（不发送通知）
+     */
+    private void fullSyncWithoutNotification() {
+        if (!syncing.compareAndSet(false, true)) {
+            log.info("同步已在进行中，跳过");
+            return;
+        }
+
+        try {
+            long startTime = System.currentTimeMillis();
+            log.info("开始全量同步（不发送通知）...");
+
+            List<SearchIndexService.IndexDoc> docs = new ArrayList<>();
+
+            // 1. 同步群聊消息
+            syncGroupMessages(docs);
+
+            // 2. 同步知识库文档
+            syncWikiDocuments(docs);
+
+            // 3. 同步云文档
+            syncDriveDocuments(docs);
+
+            // 4. 重建索引
+            indexService.rebuildIndex(docs);
+
+            int docCount = docs.size();
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("全量同步完成（不发送通知），共 {} 条文档，耗时 {}ms", docCount, elapsed);
+        } catch (Exception e) {
+            log.error("全量同步失败（不发送通知）", e);
+        } finally {
+            syncing.set(false);
         }
     }
 
@@ -190,7 +250,7 @@ public class SearchSyncScheduler {
 
         if (autoDiscover) {
             // 自动发现：获取机器人所在的所有群聊
-            log.info("自动发现模式：获取机器人所在的所有群聊...");
+            log.debug("自动发现模式：获取机器人所在的所有群聊...");
             java.util.List<Map<String, Object>> chats = feishuClient.listBotChats();
             targetChatIds = chats.stream()
                     .map(chat -> (String) chat.get("chat_id"))
@@ -206,12 +266,12 @@ public class SearchSyncScheduler {
             }
         }
 
-        log.info("开始同步 {} 个群聊的消息: {}", targetChatIds.size(), targetChatIds);
+        log.info("开始同步 {} 个群聊的消息", targetChatIds.size());
 
         for (String chatId : targetChatIds) {
             try {
                 List<Map<String, Object>> messages = feishuClient.fetchChatMessages(chatId, maxMessagesPerChat);
-                log.info("群聊[{}]获取到 {} 条消息", chatId, messages.size());
+                log.debug("群聊[{}]获取到 {} 条消息", chatId, messages.size());
 
                 // 尝试获取群名（从消息中提取，或直接用 chatId）
                 String chatName = chatId;
@@ -248,7 +308,7 @@ public class SearchSyncScheduler {
                     docs.add(new SearchIndexService.IndexDoc(fileName, fileName, "group_file", messageId, chatId, extra, formattedTime));
                     fileCount++;
                 }
-                log.info("群聊[{}]获取到 {} 条消息，索引 {} 个文件/文档", chatId, messages.size(), fileCount);
+                log.debug("群聊[{}]获取到 {} 条消息，索引 {} 个文件/文档", chatId, messages.size(), fileCount);
             } catch (Exception e) {
                 log.warn("同步群聊消息失败 chatId={}", chatId, e);
             }
@@ -279,7 +339,7 @@ public class SearchSyncScheduler {
 
         if (autoDiscover) {
             // 自动发现：获取机器人可访问的所有知识库空间
-            log.info("自动发现模式：获取机器人可访问的所有知识库空间...");
+            log.debug("自动发现模式：获取机器人可访问的所有知识库空间...");
             java.util.List<Map<String, Object>> spaces = feishuClient.listWikiSpaces();
             targetSpaceIds = spaces.stream()
                     .map(space -> (String) space.get("space_id"))
@@ -295,7 +355,7 @@ public class SearchSyncScheduler {
             }
         }
 
-        log.info("开始同步 {} 个知识库空间: {}", targetSpaceIds.size(), targetSpaceIds);
+        log.info("开始同步 {} 个知识库空间", targetSpaceIds.size());
 
         // 飞书知识库 obj_type 非文档类型（只排除文件夹等容器节点）
         Set<String> excludeObjTypes = Set.of("folder");
@@ -306,7 +366,7 @@ public class SearchSyncScheduler {
         for (String spaceId : targetSpaceIds) {
             try {
                 List<Map<String, Object>> nodes = feishuClient.fetchWikiNodesBySpaceId(spaceId);
-                log.info("知识库空间[{}]获取到 {} 个节点", spaceId, nodes.size());
+                log.debug("知识库空间[{}]获取到 {} 个节点", spaceId, nodes.size());
 
                 // 获取空间名称
                 String spaceName = feishuClient.getWikiSpaceName(spaceId);
@@ -366,7 +426,7 @@ public class SearchSyncScheduler {
                 return;
             }
 
-            log.info("获取到 {} 个云文档", files.size());
+            log.debug("获取到 {} 个云文档", files.size());
 
             int docCount = 0;
             for (Map<String, Object> file : files) {

@@ -53,7 +53,7 @@ public class GitHubHandler implements CommandHandler {
         if (repoMatcher.find()) {
             String owner = repoMatcher.group(1);
             String repo = repoMatcher.group(2);
-            return gitHubClient.getRepoInfo(owner, repo);
+            return gitHubClient.getRepoInfoText(owner, repo);
         }
 
         // 匹配PR查询

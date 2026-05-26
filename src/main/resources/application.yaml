@@ -27,6 +27,19 @@ qianyu:
 github:
   token: ${GITHUB_TOKEN:}
   api-url: ${GITHUB_API_URL:https://api.github.com}
+  # Webhook 签名密钥（在 GitHub 仓库设置 → Webhooks → Secret 中配置）
+  webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  # 仓库别名映射（别名 = owner/repo）
+  repo-aliases:
+    #test是别名
+    test: Claire-bit-cpu/Test
+    frontend: Claire-bit-cpu/frontend-repo
+    backend: Claire-bit-cpu/backend-repo
+  # 写权限白名单（飞书用户 Open ID，逗号分隔）
+   #该用户可以执行合并代码（Merge）、创建 Issue、修改仓库设置等（这些是有风险的操作）
+  admin-open-ids: ${GITHUB_ADMIN_OPEN_IDS:}
+  #该用户拥有日常开发权限
+  developer-open-ids: ${GITHUB_DEVELOPER_OPEN_IDS:}
 
 # 消息去重配置
 dedup:
@@ -65,3 +78,4 @@ search:
 # - DEL  /api/notification/config/chats/{id}    删除群聊配置
 # - POST /api/notification/config/chats/{id}/enable  启用群聊
 # - POST /api/notification/config/chats/{id}/disable 禁用群聊
+
