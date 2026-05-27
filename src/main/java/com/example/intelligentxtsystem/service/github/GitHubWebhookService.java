@@ -4,11 +4,14 @@
  */
 package com.example.intelligentxtsystem.service.github;
 
+import com.example.intelligentxtsystem.client.GitHubClient;
 import com.example.intelligentxtsystem.feishu.FeishuMessageService;
+import com.example.intelligentxtsystem.service.CodeReviewService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
@@ -27,8 +30,21 @@ public class GitHubWebhookService {
     @Autowired
     private FeishuMessageService feishuMessageService;
 
+    @Autowired(required = false)
+    private CodeReviewService codeReviewService;
+
+    @Autowired(required = false)
+    private GitHubClient gitHubClient;
+
     @Value("${notification.default-chat-ids:}")
     private String defaultChatIds;
+
+    /**
+     * 是否启用自动代码审查
+     * 可通过配置控制，默认启用
+     */
+    @Value("${github.webhook.auto-review:true}")
+    private boolean autoReviewEnabled;
 
     /**
      * 处理 push 事件
@@ -67,8 +83,50 @@ public class GitHubWebhookService {
             // 发送飞书群通知
             sendNotification(message);
 
+            // 自动触发代码审查（异步）
+            if (autoReviewEnabled && codeReviewService != null && gitHubClient != null) {
+                triggerAutoReviewForPush(payload);
+            }
+
         } catch (Exception e) {
             log.error("处理 push 事件异常", e);
+        }
+    }
+
+    /**
+     * 触发 Push 事件的自动代码审查
+     */
+    @SuppressWarnings("unchecked")
+    private void triggerAutoReviewForPush(Map<String, Object> payload) {
+        try {
+            String fullName = getStringValue(payload, "repository", "full_name");
+            if (fullName.equals("unknown") || !fullName.contains("/")) {
+                log.warn("无法解析仓库信息，跳过自动审查");
+                return;
+            }
+
+            // 获取最新提交的 SHA
+            Map<String, Object> headCommit = (Map<String, Object>) payload.get("head_commit");
+            if (headCommit == null) {
+                log.warn("head_commit 为空，跳过自动审查");
+                return;
+            }
+
+            String sha = (String) headCommit.get("id");
+            if (sha == null || sha.isEmpty()) {
+                log.warn("无法获取 commit SHA，跳过自动审查");
+                return;
+            }
+
+            String[] parts = fullName.split("/");
+            String owner = parts[0];
+            String repo = parts[1];
+
+            log.info("触发自动代码审查: {}/{} commit {}", owner, repo, sha);
+            autoReviewCommit(owner, repo, sha, fullName);
+
+        } catch (Exception e) {
+            log.error("触发自动代码审查失败", e);
         }
     }
 
@@ -83,12 +141,15 @@ public class GitHubWebhookService {
     // 需要忽略的 PR 动作（这些动作会产生重复通知）
     private static final List<String> IGNORED_PR_ACTIONS = Arrays.asList("synchronize", "labeled", "unlabeled", "milestoned", "demilestoned");
 
+    // 需要触发自动代码审查的 PR 动作
+    private static final List<String> REVIEW_PR_ACTIONS = Arrays.asList("opened", "ready_for_review");
+
     @SuppressWarnings("unchecked")
     public void handlePullRequestEvent(Map<String, Object> payload) {
         try {
             String action = (String) payload.get("action");
             
-            // 方案三：过滤掉不需要通知的 action（如 synchronize，即 push 到 PR 分支）
+            // 过滤掉不需要通知的 action（如 synchronize，即 push 到 PR 分支）
             if (action != null && IGNORED_PR_ACTIONS.contains(action)) {
                 log.info("忽略 pull_request 事件，action: {} (避免与 push 事件重复通知)", action);
                 return;
@@ -107,11 +168,16 @@ public class GitHubWebhookService {
             Map<String, Object> user = (Map<String, Object>) pullRequest.get("user");
             String initiator = user != null ? (String) user.get("login") : "unknown";
 
+            // 获取 PR 编号
+            Integer prNumber = (Integer) pullRequest.get("number");
+            String fullName = getStringValue(payload, "repository", "full_name");
+
             log.info("========== GitHub Pull Request Event ==========");
             log.info("动作: {}", action);
             log.info("标题: {}", title);
             log.info("状态: {}", state);
             log.info("发起人: {}", initiator);
+            log.info("PR 编号: {}", prNumber);
             log.info("==============================================");
 
             // 构建通知消息
@@ -125,15 +191,107 @@ public class GitHubWebhookService {
                     "👤 发起人：%s\n" +
                     "🔗 链接：%s\n",
                     actionText,
-                    getStringValue(payload, "repository", "full_name"),
+                    fullName,
                     title, state, initiator, htmlUrl
             );
 
             // 发送飞书群通知
             sendNotification(message);
 
+            // 自动触发代码审查（当 PR 创建或准备好审查时）
+            if (autoReviewEnabled && codeReviewService != null && gitHubClient != null) {
+                if (action != null && REVIEW_PR_ACTIONS.contains(action) && prNumber != null) {
+                    triggerAutoReviewForPR(payload, prNumber);
+                }
+            }
+
         } catch (Exception e) {
             log.error("处理 pull_request 事件异常", e);
+        }
+    }
+
+    /**
+     * 触发 PR 事件的自动代码审查
+     */
+    @SuppressWarnings("unchecked")
+    private void triggerAutoReviewForPR(Map<String, Object> payload, Integer prNumber) {
+        try {
+            String fullName = getStringValue(payload, "repository", "full_name");
+            if (fullName.equals("unknown") || !fullName.contains("/")) {
+                log.warn("无法解析仓库信息，跳过自动审查");
+                return;
+            }
+
+            String[] parts = fullName.split("/");
+            String owner = parts[0];
+            String repo = parts[1];
+
+            log.info("触发 PR 自动代码审查: {}/{} PR #{}", owner, repo, prNumber);
+            autoReviewPR(owner, repo, prNumber, fullName);
+
+        } catch (Exception e) {
+            log.error("触发 PR 自动代码审查失败", e);
+        }
+    }
+
+    /**
+     * 异步审查提交并发送结果到飞书
+     */
+    @Async("messageExecutor")
+    public void autoReviewCommit(String owner, String repo, String sha, String fullName) {
+        try {
+            log.info("开始自动审查 Commit: {}/{} {}", owner, repo, sha);
+
+            // 调用审查服务
+            com.example.intelligentxtsystem.dto.CodeReviewResult result =
+                    codeReviewService.reviewCommit(owner, repo, sha);
+
+            // 构建目标信息
+            String shortSha = sha.length() >= 7 ? sha.substring(0, 7) : sha;
+            String target = String.format("Commit %s (%s)", shortSha, fullName);
+            String commitUrl = "https://github.com/" + owner + "/" + repo + "/commit/" + sha;
+
+            // 格式化结果
+            String formattedResult = codeReviewService.formatReviewResult(result, target, commitUrl);
+
+            // 发送通知
+            sendNotification("🔍 自动代码审查完成\n\n" + formattedResult);
+
+            log.info("自动审查 Commit 完成: {}/{} {}", owner, repo, sha);
+
+        } catch (Exception e) {
+            log.error("自动审查 Commit 失败: {}/{} {}", owner, repo, sha, e);
+            sendNotification("⚠️ 自动代码审查失败\n\n仓库：" + fullName + "\nCommit：" + sha + "\n错误：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 异步审查 PR 并发送结果到飞书
+     */
+    @Async("messageExecutor")
+    public void autoReviewPR(String owner, String repo, int prNumber, String fullName) {
+        try {
+            log.info("开始自动审查 PR: {}/{} #{}", owner, repo, prNumber);
+
+            // 调用审查服务
+            com.example.intelligentxtsystem.dto.CodeReviewResult result =
+                    codeReviewService.reviewPullRequest(owner, repo, prNumber);
+
+            // 构建目标信息
+            String target = String.format("PR #%d (%s)", prNumber, fullName);
+            String prUrl = "https://github.com/" + owner + "/" + repo + "/pull/" + prNumber;
+
+            // 格式化结果
+            String formattedResult = codeReviewService.formatReviewResult(result, target, prUrl);
+
+            // 发送通知
+            sendNotification("🔍 自动代码审查完成\n\n" + formattedResult);
+
+            log.info("自动审查 PR 完成: {}/{} #{}", owner, repo, prNumber);
+
+        } catch (Exception e) {
+            log.error("自动审查 PR 失败: {}/{} #{}", owner, repo, prNumber, e);
+            sendNotification("⚠️ 自动代码审查失败\n\n仓库：" + fullName + "\nPR：" + prNumber + "\n错误：" + e.getMessage());
         }
     }
 

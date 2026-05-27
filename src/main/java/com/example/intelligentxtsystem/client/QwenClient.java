@@ -1,11 +1,14 @@
 package com.example.intelligentxtsystem.client;
 
+import com.example.intelligentxtsystem.dto.CodeReviewResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -199,16 +202,16 @@ public class QwenClient {
     }
 
     /**
-     * 构建代码审查提示词
+     * 构建代码审查提示词（结构化输出）
      */
     private String buildCodeReviewPrompt(String diff, String prInfo) {
         // 限制 diff 长度，避免超出 API 限制
         String truncatedDiff = diff.length() > maxDiffLength ? diff.substring(0, maxDiffLength) + "\n... (代码过长，已截断)" : diff;
 
         return String.format("""
-                你是一位资深代码审查专家，请对以下 Pull Request 进行代码审查。
+                你是一位资深代码审查专家，请对以下代码变更进行代码审查。
 
-                PR 基本信息：
+                PR/提交基本信息：
                 %s
 
                 代码差异：
@@ -218,12 +221,141 @@ public class QwenClient {
 
                 请从以下方面给出审查意见（用中文回复）：
                 1. 代码质量：是否有明显 bug、逻辑错误
-                2. 安全性：是否存在安全风险（如 SQL 注入、XSS 等）
+                2. 安全性：是否存在安全风险（如 SQL 注入、XSS、敏感信息泄露等）
                 3. 性能：是否有性能问题
                 4. 可维护性：代码是否清晰、易维护
                 5. 改进建议：具体的优化建议
 
-                请简洁明了地给出审查结论，如果没有问题就说明代码看起来不错。
+                请按以下格式返回结果（必须严格按照格式）：
+
+                【评分】：给出 0-100 的整数评分，100 分为完美
+                【问题列表】：列出发现的问题（每个问题一行，如果没有问题写"无"）
+                【修改建议】：给出具体的修改建议（每条建议一行，如果没有建议写"无"）
+                【详细分析】：给出详细的审查分析
+
+                如果没有任何问题，请在【问题列表】写"无"，在【修改建议】写"无"，并给出较高的评分（90-100）。
                 """, prInfo, truncatedDiff);
+    }
+
+    /**
+     * 使用通义千问进行代码审查（返回结构化结果）
+     *
+     * @param diff     代码差异
+     * @param prInfo   PR/提交基本信息
+     * @return 结构化审查结果
+     */
+    public CodeReviewResult reviewCodeStructured(String diff, String prInfo) {
+        logger.info("QwenClient.reviewCodeStructured() 被调用");
+
+        String prompt = buildCodeReviewPrompt(diff, prInfo);
+        logger.info("代码审查 Prompt 长度: {}", prompt.length());
+
+        try {
+            var response = callQwen(prompt);
+
+            if (response != null && response.containsKey("output")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> output = (Map<String, Object>) response.get("output");
+                String resultText = (String) output.get("text");
+                logger.info("代码审查结果: {}", resultText);
+
+                // 解析结构化结果
+                return parseCodeReviewResult(resultText);
+            }
+
+            logger.warn("响应格式异常，未找到 output 字段");
+            return createDefaultReviewResult("代码审查结果解析失败，请稍后重试");
+        } catch (Exception e) {
+            logger.warn("代码审查异常: {}", e.getMessage());
+            return createDefaultReviewResult("代码审查服务暂时不可用，请稍后再试");
+        }
+    }
+
+    /**
+     * 解析 AI 返回的结构化审查结果
+     */
+    private CodeReviewResult parseCodeReviewResult(String text) {
+        int score = 70; // 默认评分
+        List<String> problems = new ArrayList<>();
+        List<String> suggestions = new ArrayList<>();
+        String fullText = text;
+
+        // 解析评分
+        if (text.contains("【评分】")) {
+            try {
+                String scoreLine = text.lines()
+                        .filter(line -> line.contains("【评分】"))
+                        .findFirst()
+                        .orElse("");
+                // 提取数字
+                String scoreStr = scoreLine.replaceAll(".*?(\\d+).*", "$1");
+                score = Integer.parseInt(scoreStr);
+                // 确保评分在 0-100 范围内
+                score = Math.max(0, Math.min(100, score));
+            } catch (Exception e) {
+                logger.warn("解析评分失败: {}", e.getMessage());
+            }
+        }
+
+        // 解析问题列表
+        if (text.contains("【问题列表】")) {
+            try {
+                String[] lines = text.split("\n");
+                boolean inProblems = false;
+                for (String line : lines) {
+                    if (line.contains("【问题列表】")) {
+                        inProblems = true;
+                        continue;
+                    }
+                    if (line.contains("【") && line.contains("】") && !line.contains("【问题列表】")) {
+                        inProblems = false;
+                    }
+                    if (inProblems && !line.trim().isEmpty()) {
+                        String cleaned = line.replaceAll("^\\s*[-*\\d.]+\\s*", "").trim();
+                        if (!cleaned.isEmpty() && !cleaned.equals("无")) {
+                            problems.add(cleaned);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("解析问题列表失败: {}", e.getMessage());
+            }
+        }
+
+        // 解析修改建议
+        if (text.contains("【修改建议】")) {
+            try {
+                String[] lines = text.split("\n");
+                boolean inSuggestions = false;
+                for (String line : lines) {
+                    if (line.contains("【修改建议】")) {
+                        inSuggestions = true;
+                        continue;
+                    }
+                    if (line.contains("【") && line.contains("】") && !line.contains("【修改建议】")) {
+                        inSuggestions = false;
+                    }
+                    if (inSuggestions && !line.trim().isEmpty()) {
+                        String cleaned = line.replaceAll("^\\s*[-*\\d.]+\\s*", "").trim();
+                        if (!cleaned.isEmpty() && !cleaned.equals("无")) {
+                            suggestions.add(cleaned);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("解析修改建议失败: {}", e.getMessage());
+            }
+        }
+
+        return new CodeReviewResult(score, problems, suggestions, fullText);
+    }
+
+    /**
+     * 创建默认的审查结果（当解析失败时使用）
+     */
+    private CodeReviewResult createDefaultReviewResult(String message) {
+        List<String> problems = new ArrayList<>();
+        problems.add(message);
+        return new CodeReviewResult(0, problems, new ArrayList<>(), message);
     }
 }

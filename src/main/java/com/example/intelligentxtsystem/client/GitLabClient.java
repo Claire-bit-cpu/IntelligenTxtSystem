@@ -1,9 +1,10 @@
 /*
  * GitLab API 客户端
- * 支持：查询提交日志、查看 diff、创建分支、查看 MR
+ * 支持：查询提交日志、查看 diff、创建分支、查看 MR、CI/CD 流水线
  */
 package com.example.intelligentxtsystem.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +26,9 @@ public class GitLabClient {
 
     @Value("${gitlab.token:}")
     private String privateToken;
+
+    @Value("${gitlab.enabled:false}")
+    private boolean enabled;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -99,6 +103,164 @@ public class GitLabClient {
         return executeGet(url, Map.class);
     }
 
+    // ========== CI/CD 流水线功能 ==========
+
+    /**
+     * 触发 CI/CD 流水线
+     * @param projectId 项目 ID
+     * @param ref 分支名或 tag
+     * @param variables 环境变量（可选）
+     */
+    public String triggerPipeline(String projectId, String ref, Map<String, String> variables) {
+        if (!enabled) {
+            throw new IllegalStateException("GitLab 集成未启用");
+        }
+
+        try {
+            String url = String.format("%s/projects/%s/pipeline?ref=%s",
+                    apiBaseUrl, projectId, ref);
+
+            // 添加变量
+            if (variables != null && !variables.isEmpty()) {
+                StringBuilder varStr = new StringBuilder(url);
+                variables.forEach((k, v) -> varStr.append("&variables[").append(k).append("]=").append(v));
+                url = varStr.toString();
+            }
+
+            HttpHeaders headers = buildHeaders();
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.POST, entity, String.class);
+
+            JsonNode result = objectMapper.readTree(response.getBody());
+            int pipelineId = result.get("id").asInt();
+            String status = result.get("status").asText();
+
+            return String.format("✅ 流水线已触发\nID: %d\n状态: %s\n分支: %s",
+                    pipelineId, status, ref);
+        } catch (Exception e) {
+            log.error("GitLab 触发流水线失败: projectId={}, ref={}", projectId, ref, e);
+            throw new RuntimeException("GitLab 触发流水线失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 获取流水线状态
+     * @param projectId 项目 ID
+     * @param pipelineId 流水线 ID
+     */
+    public String getPipelineStatus(String projectId, int pipelineId) {
+        if (!enabled) {
+            throw new IllegalStateException("GitLab 集成未启用");
+        }
+
+        try {
+            String url = String.format("%s/projects/%s/pipelines/%d",
+                    apiBaseUrl, projectId, pipelineId);
+
+            HttpHeaders headers = buildHeaders();
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, entity, String.class);
+
+            JsonNode result = objectMapper.readTree(response.getBody());
+
+            String status = result.get("status").asText();
+            String ref = result.get("ref").asText();
+            String sha = result.get("sha").asText().substring(0, 8);
+            String createdAt = result.get("created_at").asText();
+
+            return String.format(
+                    "🚀 GitLab 流水线状态\n\n" +
+                    "ID: %d\n" +
+                    "状态: %s\n" +
+                    "分支: %s\n" +
+                    "提交: %s\n" +
+                    "创建时间: %s\n\n" +
+                    "🔗 %s/%s/-/pipelines/%d",
+                    pipelineId, status, ref, sha, createdAt,
+                    apiBaseUrl.replace("/api/v4", ""), projectId, pipelineId);
+        } catch (Exception e) {
+            log.error("GitLab 查询流水线失败", e);
+            return "❌ 查询失败: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 取消流水线
+     */
+    public String cancelPipeline(String projectId, int pipelineId) {
+        if (!enabled) {
+            throw new IllegalStateException("GitLab 集成未启用");
+        }
+
+        try {
+            String url = String.format("%s/projects/%s/pipelines/%d/cancel",
+                    apiBaseUrl, projectId, pipelineId);
+
+            HttpHeaders headers = buildHeaders();
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+
+            return "✅ 已取消流水线 #" + pipelineId;
+        } catch (Exception e) {
+            log.error("GitLab 取消流水线失败", e);
+            return "❌ 取消失败: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 获取项目最近流水线列表
+     */
+    public String listPipelines(String projectId, int limit) {
+        if (!enabled) {
+            return "⚠️ GitLab 集成未启用";
+        }
+
+        try {
+            String url = String.format("%s/projects/%s/pipelines?per_page=%d",
+                    apiBaseUrl, projectId, limit);
+
+            HttpHeaders headers = buildHeaders();
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, entity, String.class);
+
+            JsonNode pipelines = objectMapper.readTree(response.getBody());
+
+            StringBuilder sb = new StringBuilder();
+            sb.append(String.format("🚀 GitLab 流水线列表（最近 %d 条）\n\n", limit));
+
+            for (JsonNode pipeline : pipelines) {
+                int id = pipeline.get("id").asInt();
+                String ref = pipeline.get("ref").asText();
+                String status = pipeline.get("status").asText();
+                String createdAt = pipeline.get("created_at").asText();
+
+                String emoji = switch (status) {
+                    case "success" -> "✅";
+                    case "failed" -> "❌";
+                    case "running" -> "🔄";
+                    case "pending" -> "⏳";
+                    case "canceled" -> "⏹";
+                    default -> "❓";
+                };
+
+                sb.append(String.format("%s #%d - %s 【%s】%n    创建: %s%n\n",
+                        emoji, id, ref, status, createdAt));
+            }
+
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("GitLab 查询流水线列表失败", e);
+            return "❌ 查询失败: " + e.getMessage();
+        }
+    }
+
     // ========== 通用请求方法 ==========
 
     private <T> T executeGet(String url, Class<T> responseType) {
@@ -143,5 +305,9 @@ public class GitLabClient {
         }
         // 如果不是别名，假设它是直接的 projectId
         return alias;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
     }
 }

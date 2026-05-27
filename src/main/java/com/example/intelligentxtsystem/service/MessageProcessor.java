@@ -99,11 +99,12 @@ public class MessageProcessor {
             String text = content.getText();
             log.info("解析后消息: {}", text);
 
-            if (text != null && text.contains(" ")) {
-                text = text.replaceFirst("^@[^\\s]+\\s*", "");
+            // 移除 @mention 部分（支持 "@机器人 命令" 和 "@机器人命令" 两种格式）
+            if (text != null && text.startsWith("@")) {
+                text = text.replaceFirst("^@[^\\s/]+\\s*", "").trim();
             }
 
-            return text;
+            return text.isEmpty() ? null : text;
         } catch (Exception e) {
             log.warn("解析消息内容失败", e);
             return null;
