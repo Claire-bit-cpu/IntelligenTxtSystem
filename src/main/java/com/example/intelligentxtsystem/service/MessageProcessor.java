@@ -18,11 +18,23 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 异步消息处理器
  * 独立 Service 类，确保 @Async 通过 Spring 代理生效
+ *
+ * 群聊消息处理规则：
+ *   - 群聊中（chat_id 以 "oc_" 开头）：只有@机器人时才处理并回复
+ *   - 私聊中（chat_id 以 "om_" 开头）：正常处理所有消息
  */
 @Service
 public class MessageProcessor {
 
     private static final Logger log = LoggerFactory.getLogger(MessageProcessor.class);
+
+    /**
+     * 飞书群聊 ID 前缀
+     * 文档：https://open.feishu.cn/document/uAjLw4CM/ukTMukTMuYjLwUjMjMjM
+     *   oc_xxx  → 群聊
+     *   om_xxx  → 单聊（私聊）
+     */
+    private static final String GROUP_CHAT_PREFIX = "oc_";
 
     private final ConcurrentHashMap<String, Long> processedMessages = new ConcurrentHashMap<>();
 
@@ -44,6 +56,15 @@ public class MessageProcessor {
 
     /**
      * 异步处理消息事件
+     *
+     * 处理逻辑：
+     *   1. 解析消息内容
+     *   2. 判断是群聊还是私聊
+     *   3. 群聊：检查是否@了机器人，未@则直接返回（不回复）
+     *   4. 私聊：正常处理
+     *   5. 消息去重
+     *   6. 分发并处理指令
+     *   7. 发送回复
      */
     @Async("messageExecutor")
     public void processMessageEvent(Map<String, Object> body) {
@@ -60,6 +81,26 @@ public class MessageProcessor {
             if (messageMap == null) {
                 log.warn("message 为空");
                 return;
+            }
+
+            // 用 FeishuCallback 解析其他字段（messageId、chatId、sender）
+            FeishuCallback callback = objectMapper.convertValue(body, FeishuCallback.class);
+            String chatId = callback.getEvent().getMessage().getChatId();
+            String messageId = callback.getEvent().getMessage().getMessageId();
+
+            // ===== 群聊@检查：只有群聊且未@机器人时，直接返回 =====
+            if (isGroupChat(chatId)) {
+                // 从 message.mentions 解析 mentions
+                List<MessageContent.Mention> mentions = parseMentions(messageMap);
+
+                boolean botMentioned = isBotMentioned(mentions);
+                if (!botMentioned) {
+                    log.info("群聊消息未@机器人，跳过处理。chatId={}, messageId={}", chatId, messageId);
+                    return;
+                }
+                log.info("群聊消息已@机器人，继续处理。chatId={}, messageId={}", chatId, messageId);
+            } else {
+                log.info("私聊消息，正常处理。chatId={}, messageId={}", chatId, messageId);
             }
 
             // 解析 content
@@ -92,11 +133,6 @@ public class MessageProcessor {
             // 清洗 text：移除机器人自身的 @_user_N 占位符，确保以 / 开头能被 dispatch 识别
             String cleanedText = cleanBotMention(text, mentions);
 
-            // 用 FeishuCallback 解析其他字段（messageId、chatId、sender）
-            FeishuCallback callback = objectMapper.convertValue(body, FeishuCallback.class);
-            String messageId = callback.getEvent().getMessage().getMessageId();
-            String chatId = callback.getEvent().getMessage().getChatId();
-
             // 消息去重
             long now = System.currentTimeMillis();
             Long lastTime = processedMessages.putIfAbsent(messageId, now);
@@ -122,6 +158,28 @@ public class MessageProcessor {
         } catch (Exception e) {
             log.error("异步处理消息事件异常", e);
         }
+    }
+
+    /**
+     * 判断是否为群聊
+     * 飞书 chat_id 规则：
+     *   - oc_ 开头 → 群聊（Open Chat）
+     *   - om_ 开头 → 私聊（Open Message）
+     */
+    private boolean isGroupChat(String chatId) {
+        return chatId != null && chatId.startsWith(GROUP_CHAT_PREFIX);
+    }
+
+    /**
+     * 检查消息中是否@了机器人
+     * 飞书群聊消息的 mentions 中，mentioned_type = "bot" 表示@了机器人
+     */
+    private boolean isBotMentioned(List<MessageContent.Mention> mentions) {
+        if (mentions == null || mentions.isEmpty()) {
+            return false;
+        }
+        return mentions.stream()
+                .anyMatch(m -> "bot".equals(m.getMentionedType()));
     }
 
     /**

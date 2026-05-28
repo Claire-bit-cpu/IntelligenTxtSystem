@@ -102,7 +102,15 @@ grafana:
   enabled: ${GRAFANA_ENABLED:false}
 
 server:
-  port: 8082
+  port: ${SERVER_PORT:8082}
+
+# 日志配置
+logging:
+  level:
+    com.example.intelligentxtsystem.client.FeishuClient: DEBUG
+    com.example.intelligentxtsystem: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"
 
 # 通知配置
 notification:

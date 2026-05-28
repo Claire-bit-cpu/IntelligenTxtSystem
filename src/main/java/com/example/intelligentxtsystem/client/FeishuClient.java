@@ -815,6 +815,12 @@ public class FeishuClient {
         java.util.List<Map<String, Object>> allSpaces = new java.util.ArrayList<>();
         String pageToken = null;
 
+        // 检查 token 是否有效
+        if (tenantAccessToken == null || tenantAccessToken.isEmpty()) {
+            log.error("tenantAccessToken 为空，无法获取知识库空间！请检查飞书应用配置和权限。");
+            return allSpaces;
+        }
+
         do {
             String url = apiBaseUrl + "/wiki/v2/spaces?page_size=50";
             if (pageToken != null) {
@@ -826,32 +832,43 @@ public class FeishuClient {
             HttpEntity<Void> entity = new HttpEntity<>(headers);
 
             try {
+                log.debug("正在请求知识库空间列表: {}", url);
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
                 String responseBody = response.getBody();
-                log.debug("获取知识库空间响应: {}", responseBody);
+                log.info("获取知识库空间响应: {}", responseBody);  // 改为 INFO 级别，方便调试
 
                 Map<String, Object> result = objectMapper.readValue(responseBody, Map.class);
 
                 if (!"0".equals(String.valueOf(result.get("code")))) {
-                    log.warn("获取知识库空间失败: code={}, msg={}", result.get("code"), result.get("msg"));
+                    log.error("获取知识库空间失败: code={}, msg={}, 请检查应用是否开通了 wiki:wiki:readonly 权限",
+                            result.get("code"), result.get("msg"));
                     break;
                 }
 
                 Map<String, Object> data = (Map<String, Object>) result.get("data");
-                if (data == null) break;
+                if (data == null) {
+                    log.warn("获取知识库空间返回 data 为 null");
+                    break;
+                }
 
                 java.util.List<Map<String, Object>> items = (java.util.List<Map<String, Object>>) data.get("items");
-                if (items != null) allSpaces.addAll(items);
+                if (items != null) {
+                    log.info("本页获取到 {} 个知识库空间", items.size());
+                    allSpaces.addAll(items);
+                } else {
+                    log.info("本页 items 为 null");
+                }
 
                 boolean hasMore = Boolean.TRUE.equals(data.get("has_more"));
                 pageToken = hasMore ? (String) data.get("page_token") : null;
+                log.debug("是否有更多数据: {}, next_page_token: {}", hasMore, pageToken);
             } catch (Exception e) {
                 log.error("获取知识库空间异常", e);
                 break;
             }
         } while (pageToken != null);
 
-        log.info("获取到 {} 个知识库空间", allSpaces.size());
+        log.info("总共获取到 {} 个知识库空间", allSpaces.size());
         return allSpaces;
     }
 
@@ -1190,6 +1207,12 @@ public class FeishuClient {
         java.util.List<Map<String, Object>> allFiles = new java.util.ArrayList<>();
         String pageToken = null;
 
+        // 检查 token 是否有效
+        if (tenantAccessToken == null || tenantAccessToken.isEmpty()) {
+            log.error("tenantAccessToken 为空，无法获取云文档！请检查飞书应用配置和权限。");
+            return allFiles;
+        }
+
         do {
             String url = apiBaseUrl + "/drive/v1/files?page_size=50";
             if (pageToken != null) {
@@ -1201,32 +1224,43 @@ public class FeishuClient {
             HttpEntity<Void> entity = new HttpEntity<>(headers);
 
             try {
+                log.debug("正在请求云文档列表: {}", url);
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
                 String responseBody = response.getBody();
-                log.debug("获取云文档列表响应: {}", responseBody);
+                log.info("获取云文档列表响应: {}", responseBody);  // 改为 INFO 级别
 
                 Map<String, Object> result = objectMapper.readValue(responseBody, Map.class);
 
                 if (!"0".equals(String.valueOf(result.get("code")))) {
-                    log.warn("获取云文档列表失败: code={}, msg={}", result.get("code"), result.get("msg"));
+                    log.error("获取云文档列表失败: code={}, msg={}, 请检查应用是否开通了 drive:drive:readonly 权限",
+                            result.get("code"), result.get("msg"));
                     break;
                 }
 
                 Map<String, Object> data = (Map<String, Object>) result.get("data");
-                if (data == null) break;
+                if (data == null) {
+                    log.warn("获取云文档列表返回 data 为 null");
+                    break;
+                }
 
                 java.util.List<Map<String, Object>> files = (java.util.List<Map<String, Object>>) data.get("files");
-                if (files != null) allFiles.addAll(files);
+                if (files != null) {
+                    log.info("本页获取到 {} 个云文档", files.size());
+                    allFiles.addAll(files);
+                } else {
+                    log.info("本页 files 为 null");
+                }
 
                 boolean hasMore = Boolean.TRUE.equals(data.get("has_more"));
                 pageToken = hasMore ? (String) data.get("page_token") : null;
+                log.debug("是否有更多数据: {}, next_page_token: {}", hasMore, pageToken);
             } catch (Exception e) {
                 log.error("获取云文档列表异常", e);
                 break;
             }
         } while (pageToken != null);
 
-        log.info("获取到 {} 个云文档", allFiles.size());
+        log.info("总共获取到 {} 个云文档", allFiles.size());
         return allFiles;
     }
 
