@@ -163,6 +163,12 @@ welcome:
   # 同一群聊两次欢迎的最小间隔（防刷屏）
   cooldown: ${WELCOME_COOLDOWN_MS:30000}
 
+# AI 智能理解配置
+ai:
+  enabled: ${AI_ENABLED:true}
+  # 系统提示词（可选，用于定制 AI 理解行为）
+  system-prompt: ${AI_SYSTEM_PROMPT:}
+
 
 # 通知配置（群聊配置已迁移到数据库 notification_chat_config 表，支持动态增删）
 # 使用以下接口管理群聊配置：

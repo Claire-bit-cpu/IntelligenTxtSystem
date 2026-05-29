@@ -3,6 +3,7 @@ package com.example.intelligentxtsystem.service;
 import com.example.intelligentxtsystem.client.FeishuClient;
 import com.example.intelligentxtsystem.dto.FeishuCallback;
 import com.example.intelligentxtsystem.dto.MessageContent;
+import com.example.intelligentxtsystem.service.AiUnderstandingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +48,16 @@ public class MessageProcessor {
     private final ObjectMapper objectMapper;
     private final FeishuClient feishuClient;
     private final MessageDispatcher messageDispatcher;
+    private final AiUnderstandingService aiUnderstandingService;
 
-    public MessageProcessor(ObjectMapper objectMapper, FeishuClient feishuClient, MessageDispatcher messageDispatcher) {
+    public MessageProcessor(ObjectMapper objectMapper, 
+                           FeishuClient feishuClient, 
+                           MessageDispatcher messageDispatcher,
+                           AiUnderstandingService aiUnderstandingService) {
         this.objectMapper = objectMapper;
         this.feishuClient = feishuClient;
         this.messageDispatcher = messageDispatcher;
+        this.aiUnderstandingService = aiUnderstandingService;
     }
 
     /**
@@ -151,8 +157,22 @@ public class MessageProcessor {
             if (reply != null && reply.startsWith("__CARD__")) {
                 String cardJson = reply.substring("__CARD__".length());
                 feishuClient.sendCard(chatId, cardJson);
+                // 卡片消息也保存对话历史
+                aiUnderstandingService.saveConversationHistory(
+                    chatId, 
+                    callback.getEvent().getSender().getId(),  // 使用 getId() 获取用户ID
+                    cleanedText, 
+                    "[卡片消息]"
+                );
             } else if (reply != null) {
                 feishuClient.sendText(chatId, reply);
+                // 保存对话历史到 Redis
+                aiUnderstandingService.saveConversationHistory(
+                    chatId, 
+                    callback.getEvent().getSender().getId(),  // 使用 getId() 获取用户ID
+                    cleanedText, 
+                    reply
+                );
             }
 
         } catch (Exception e) {

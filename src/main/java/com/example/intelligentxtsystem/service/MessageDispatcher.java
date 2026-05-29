@@ -13,11 +13,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 消息分发器
- * 实现三级响应策略：
+ * 消息分发器（四级响应策略）
+ * 
  * Level 1 (精确匹配)：/开头 + 指令存在 → 正常执行
  * Level 2 (模糊匹配)：/开头 + 指令不存在但相似度达标 → 提示"您是不是想说 /xxx？"
- * Level 3 (静默丢弃)：不包含 / 或无意义字符 → 返回 null（不回复）
+ * Level 3 (静默丢弃)：非/开头且未@机器人 → 返回 null（不回复）
+ * Level 4 (AI 理解)：@机器人 + 非/开头 → 调用 AI 理解意图后处理
  */
 @Service
 public class MessageDispatcher {
@@ -26,6 +27,7 @@ public class MessageDispatcher {
 
     private final CommandRegistry commandRegistry;
     private final FuzzyMatcher fuzzyMatcher;
+    private final AiUnderstandingService aiUnderstandingService;
 
     /**
      * 匹配 /指令名 或 指令名 的正则
@@ -37,9 +39,12 @@ public class MessageDispatcher {
      */
     private static final Pattern NOISE_PATTERN = Pattern.compile("^[a-z]{5,}$");
 
-    public MessageDispatcher(CommandRegistry commandRegistry, FuzzyMatcher fuzzyMatcher) {
+    public MessageDispatcher(CommandRegistry commandRegistry,
+                            FuzzyMatcher fuzzyMatcher,
+                            AiUnderstandingService aiUnderstandingService) {
         this.commandRegistry = commandRegistry;
         this.fuzzyMatcher = fuzzyMatcher;
+        this.aiUnderstandingService = aiUnderstandingService;
     }
 
     @PostConstruct
@@ -75,10 +80,26 @@ public class MessageDispatcher {
 
         String trimmedText = text.trim();
 
-        // ===== Level 3：静默丢弃检测 =====
-        // 如果消息不以 / 开头，且不包含任何已知指令关键字，视为普通对话，静默丢弃
+        // ===== Level 4：AI 智能理解（优先处理非/开头的消息）=====
+        // 如果消息不以 / 开头，且是@机器人的消息，调用 AI 理解意图
+        boolean isBotMentioned = mentions != null && mentions.stream()
+                .anyMatch(m -> "bot".equals(m.getMentionedType()));
+        
+        if (!trimmedText.startsWith("/") && isBotMentioned) {
+            log.info("Level 4：检测到@机器人的自然语言消息，调用 AI 理解");
+            String aiResult = aiUnderstandingService.processNaturalLanguage(
+                    trimmedText, sender, chatId, mentions);
+            if (aiResult != null) {
+                log.info("Level 4：AI 理解成功，返回结果");
+                return aiResult;
+            }
+            // AI 无法理解时，返回友好提示（不再静默丢弃）
+            return "🤖 我已收到您的消息，但暂时无法理解您的意图。\n\n💡 请使用 / 开头的指令，或输入 /help 查看可用指令";
+        }
+
+        // ===== Level 3：非@机器人的非指令消息，静默丢弃 =====
         if (!trimmedText.startsWith("/")) {
-            log.debug("Level 3：非指令消息，静默丢弃: {}", trimmedText);
+            log.debug("Level 3：非指令消息且未@机器人，静默丢弃: {}", trimmedText);
             return null;
         }
 
