@@ -1046,6 +1046,10 @@ public class FeishuClient {
      * 构建帮助中心交互式卡片 JSON（Schema 2.0）
      * 标题：🤖 机器人帮助中心（蓝色）
      * 点击按钮触发 card.action.trigger 回调，value.action 指定对应指令
+     * 
+     * 设计思路：分层展示
+     * 1. 第一层：只显示功能分类按钮
+     * 2. 第二层：用户点击后，通过回调返回详细指令
      */
     public static String buildHelpCard() {
         try {
@@ -1062,46 +1066,59 @@ public class FeishuClient {
             // elements
             List<Map<String, Object>> elements = new ArrayList<>();
 
-            // 基础指令
-            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**📌 基础指令**")));
-            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/weather <城市>` 查询天气\n• `/translate <文本>` 中英互译\n• `/schedule <时间> <事件>` 创建日程")));
+            // 提示文本
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", 
+                "👆 **请选择功能分类，查看详细指令**\n\n" +
+                "💡 点击下方按钮，获取对应功能的使用说明")));
+
+            elements.add(Map.of("tag", "hr"));
+
+            // 基础功能
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**📌 基础功能**")));
             elements.add(buildButtonGroup(
-                    Map.of("action", "help_weather"), "🌤 天气", "primary",
+                    Map.of("action", "help_weather"), "🌤 天气查询", "primary",
                     Map.of("action", "help_translate"), "🌐 翻译", "primary",
-                    Map.of("action", "help_schedule"), "📅 日程", "primary"
+                    Map.of("action", "help_schedule"), "📅 日程管理", "primary"
             ));
 
             elements.add(Map.of("tag", "hr"));
 
-            // 企业指令
-            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🏢 企业指令**")));
-            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/group <群名> [@成员]` 创建群组\n• `/search <关键词>` 搜索文档\n• `/AI <问题>` AI智能问答")));
+            // 企业功能
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🏢 企业功能**")));
             elements.add(buildButtonGroup(
-                    Map.of("action", "help_group"), "👥 建群", "default",
-                    Map.of("action", "help_search"), "🔍 搜索", "default",
-                    Map.of("action", "help_ai"), "🤖 AI", "default"
+                    Map.of("action", "help_group"), "👥 创建群组", "default",
+                    Map.of("action", "help_search"), "🔍 搜索文档", "default",
+                    Map.of("action", "help_ai"), "🤖 AI问答", "default"
             ));
 
             elements.add(Map.of("tag", "hr"));
 
-            // GitHub 指令
-            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🐙 GitHub 指令**")));
-            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/repo <owner/repo>` 查看仓库\n• `/pr <owner/repo> <号>` 查看PR\n• `/cr <owner/repo> <号>` 代码审查")));
+            // GitHub 功能
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🐙 GitHub 功能**")));
             elements.add(buildButtonGroup(
-                    Map.of("action", "help_repo"), "📦 仓库", "default",
-                    Map.of("action", "help_pr"), "🔀 PR", "default",
-                    Map.of("action", "help_cr"), "🔍 审查", "default"
+                    Map.of("action", "help_github"), "📦 仓库/PR", "default",
+                    Map.of("action", "help_branch"), "🌿 分支管理", "default",
+                    Map.of("action", "help_review"), "🔍 代码审查", "default"
             ));
 
             elements.add(Map.of("tag", "hr"));
 
             // DevOps 工具
             elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🔧 DevOps 工具**")));
-            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "• `/uptime` 查看运行时间\n• `/ping <主机>` 检测连通性\n• `/deploy <环境>` 触发部署")));
             elements.add(buildButtonGroup(
-                    Map.of("action", "help_uptime"), "⏱ uptime", "default",
-                    Map.of("action", "help_ping"), "📶 ping", "default",
-                    Map.of("action", "help_deploy"), "🚀 deploy", "default"
+                    Map.of("action", "help_cicd"), "⚙️ CI/CD", "default",
+                    Map.of("action", "help_monitor"), "📊 监控", "default",
+                    Map.of("action", "help_jira"), "📋 JIRA", "default"
+            ));
+
+            elements.add(Map.of("tag", "hr"));
+
+            // 系统工具
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🛠️ 系统工具**")));
+            elements.add(buildButtonGroup(
+                    Map.of("action", "help_uptime"), "⏱ 运行时间", "default",
+                    Map.of("action", "help_ping"), "📶 Ping", "default",
+                    Map.of("action", "help_myid"), "🆔 我的ID", "default"
             ));
 
             card.put("elements", elements);
