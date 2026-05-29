@@ -3,6 +3,19 @@ spring:
     name: IntelligentxtSystem
   main:
     allow-circular-references: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: ${REDIS_TIMEOUT:5000}
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:8}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:0}
+          max-wait: ${REDIS_POOL_MAX_WAIT:5000}
 
 # 高德天气 API Key
 amap:
@@ -149,6 +162,7 @@ welcome:
     请输入 /help 查看我能为您提供的服务。
   # 同一群聊两次欢迎的最小间隔（防刷屏）
   cooldown: ${WELCOME_COOLDOWN_MS:30000}
+
 
 # 通知配置（群聊配置已迁移到数据库 notification_chat_config 表，支持动态增删）
 # 使用以下接口管理群聊配置：
