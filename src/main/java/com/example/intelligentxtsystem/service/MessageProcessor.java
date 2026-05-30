@@ -223,6 +223,8 @@ public class MessageProcessor {
                 String startMsgId = feishuClient.sendText(chatId, taskStartMsg);
                 if (startMsgId != null) {
                     AsyncTaskStatus.setMessageId(taskId, startMsgId);
+                    // 保存 chatId，用于更新失败时发送新消息
+                    AsyncTaskStatus.setChatId(taskId, chatId);
                     log.info("已发送任务开始通知并保存 messageId: taskId={}, chatId={}, messageId={}", taskId, chatId, startMsgId);
                 } else {
                     log.warn("任务开始通知发送失败，无法获取 messageId: taskId={}, chatId={}", taskId, chatId);
@@ -295,6 +297,7 @@ public class MessageProcessor {
 
     /**
      * 最终更新飞书消息（任务完成或失败时调用）
+     * 如果更新失败（如达到编辑次数上限），自动发送新消息
      * @param taskId 任务ID
      * @param success 是否成功
      * @param errorMsg 错误信息（失败时）
@@ -319,7 +322,25 @@ public class MessageProcessor {
                 sb.append("📝 错误: ").append(errorMsg != null ? errorMsg : "未知错误").append("\n");
             }
             String contentJson = "{\"text\":\"" + sb.toString().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"}";
-            feishuClient.updateMessage(task.getMessageId(), contentJson, "text");
+            
+            // 尝试更新消息
+            boolean updateSuccess = feishuClient.updateMessage(task.getMessageId(), contentJson, "text");
+            if (!updateSuccess) {
+                // 更新失败（可能是编辑次数上限），发送新消息
+                log.info("最终消息更新失败，发送新消息: taskId={}, oldMessageId={}", taskId, task.getMessageId());
+                String chatId = task.getChatId();
+                if (chatId != null) {
+                    String finalText = sb.toString();
+                    String newMessageId = feishuClient.sendText(chatId, finalText);
+                    if (newMessageId != null) {
+                        // 更新任务中的 messageId
+                        AsyncTaskStatus.setMessageId(taskId, newMessageId);
+                        log.info("最终消息已更新为新消息: taskId={}, newMessageId={}", taskId, newMessageId);
+                    }
+                } else {
+                    log.warn("无法获取 chatId，无法发送新消息: taskId={}", taskId);
+                }
+            }
         } catch (Exception e) {
             log.warn("最终更新飞书消息失败: taskId={}, error={}", taskId, e.getMessage());
         }
@@ -383,6 +404,7 @@ public class MessageProcessor {
     /**
      * 更新飞书侧消息（原地更新，不发送新消息）
      * 通过 updateMessage API 更新之前发送的任务通知消息
+     * 如果更新失败（如达到编辑次数上限），自动发送新消息
      */
     private void updateFeishuMessage(String taskId, int progress, String statusMsg) {
         try {
@@ -394,7 +416,25 @@ public class MessageProcessor {
             String progressText = buildProgressText(taskId, progress, statusMsg);
             // content 必须是 JSON 字符串: {"text":"..."}
             String contentJson = "{\"text\":\"" + progressText.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"}";
-            feishuClient.updateMessage(task.getMessageId(), contentJson, "text");
+            
+            // 尝试更新消息
+            boolean updateSuccess = feishuClient.updateMessage(task.getMessageId(), contentJson, "text");
+            if (!updateSuccess) {
+                // 更新失败（可能是编辑次数上限），发送新消息
+                log.info("任务消息更新失败，发送新消息: taskId={}, oldMessageId={}", taskId, task.getMessageId());
+                // 从 task 获取 chatId（比 ThreadLocal 更可靠）
+                String chatId = task.getChatId();
+                if (chatId != null) {
+                    String newMessageId = feishuClient.sendText(chatId, progressText);
+                    if (newMessageId != null) {
+                        // 更新任务中的 messageId
+                        AsyncTaskStatus.setMessageId(taskId, newMessageId);
+                        log.info("任务消息已更新为新消息: taskId={}, newMessageId={}", taskId, newMessageId);
+                    }
+                } else {
+                    log.warn("无法获取 chatId，无法发送新消息: taskId={}", taskId);
+                }
+            }
         } catch (Exception e) {
             log.warn("更新飞书消息失败: taskId={}, error={}", taskId, e.getMessage());
         }

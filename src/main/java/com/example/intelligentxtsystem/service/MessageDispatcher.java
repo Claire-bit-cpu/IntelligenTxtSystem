@@ -192,6 +192,10 @@ public class MessageDispatcher {
                     mentions != null ? mentions.size() : 0, taskId);
             Object result = commandRegistry.execute(commandName, context);
             return result != null ? result.toString() : null;
+        } catch (SecurityException e) {
+            // 权限拒绝：返回友好错误信息（不打印错误日志，只打印警告）
+            log.warn("权限拒绝: /{}，taskId: {}，原因: {}", commandName, taskId, e.getMessage());
+            return e.getMessage();
         } catch (Exception e) {
             log.error("执行指令失败: /{}，taskId: {}", commandName, taskId, e);
             return "❌ 执行指令失败: " + e.getMessage();

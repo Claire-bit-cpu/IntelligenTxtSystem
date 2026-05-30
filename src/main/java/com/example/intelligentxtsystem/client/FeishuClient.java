@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -189,11 +190,12 @@ public class FeishuClient {
      * @param messageId  要更新的消息ID（调用 sendText/sendCard 的返回值）
      * @param contentJson 新的消息内容（JSON 字符串，text类型或卡片）
      * @param msgType    消息类型："text" 或 "interactive"
+     * @return true if success, false if edit limit reached or other failure
      */
-    public void updateMessage(String messageId, String contentJson, String msgType) {
+    public boolean updateMessage(String messageId, String contentJson, String msgType) {
         if (messageId == null || messageId.isEmpty()) {
             log.warn("updateMessage 失败: messageId 为空");
-            return;
+            return false;
         }
         ensureToken();
 
@@ -212,8 +214,18 @@ public class FeishuClient {
         try {
             restTemplate.exchange(url, org.springframework.http.HttpMethod.PUT, entity, String.class);
             log.debug("消息更新成功: messageId={}", messageId);
+            return true;
+        } catch (HttpClientErrorException e) {
+            // 检查是否是编辑次数上限错误
+            if (e.getStatusCode().value() == 400 && e.getResponseBodyAsString().contains("230072")) {
+                log.warn("消息已达到编辑次数上限，需要发送新消息: messageId={}", messageId);
+            } else {
+                log.warn("消息更新失败: messageId={}", messageId, e);
+            }
+            return false;
         } catch (Exception e) {
             log.warn("消息更新失败: messageId={}", messageId, e);
+            return false;
         }
     }
 
