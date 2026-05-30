@@ -2,6 +2,7 @@ package com.example.intelligentxtsystem.service;
 
 import com.example.intelligentxtsystem.client.FeishuClient;
 import com.example.intelligentxtsystem.dto.FeishuCallback;
+import com.example.intelligentxtsystem.dto.FeishuSender;
 import com.example.intelligentxtsystem.dto.MessageContent;
 import com.example.intelligentxtsystem.service.AiUnderstandingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -79,7 +80,7 @@ public class MessageProcessor {
             @SuppressWarnings("unchecked")
             Map<String, Object> eventMap = (Map<String, Object>) body.get("event");
             if (eventMap == null) {
-                log.warn("event 为空");
+                log.warn("event 为空, body keys: {}", body.keySet());
                 return;
             }
             @SuppressWarnings("unchecked")
@@ -89,10 +90,36 @@ public class MessageProcessor {
                 return;
             }
 
-            // 用 FeishuCallback 解析其他字段（messageId、chatId、sender）
-            FeishuCallback callback = objectMapper.convertValue(body, FeishuCallback.class);
-            String chatId = callback.getEvent().getMessage().getChatId();
-            String messageId = callback.getEvent().getMessage().getMessageId();
+            // 兼容两种结构：
+            // 1. 标准结构：{"header": {...}, "event": {...}}
+            // 2. 扁平结构（解密后）：{"event_id": "...", "event_type": "...", "event": {...}}
+            String chatId = null;
+            String messageId = null;
+            FeishuCallback callback = null;
+            
+            try {
+                callback = objectMapper.convertValue(body, FeishuCallback.class);
+                if (callback.getEvent() != null && callback.getEvent().getMessage() != null) {
+                    chatId = callback.getEvent().getMessage().getChatId();
+                    messageId = callback.getEvent().getMessage().getMessageId();
+                }
+            } catch (Exception e) {
+                log.warn("FeishuCallback 转换失败，尝试直接从 eventMap 解析: {}", e.getMessage());
+            }
+            
+            // 如果转换失败，直接从 eventMap 解析
+            if (chatId == null || messageId == null) {
+                log.info("从 eventMap 直接解析 chatId 和 messageId");
+                chatId = (String) messageMap.get("chat_id");
+                messageId = (String) messageMap.get("message_id");
+            }
+            
+            if (chatId == null || messageId == null) {
+                log.error("无法解析 chatId 或 messageId");
+                return;
+            }
+            
+            log.info("解析成功: chatId={}, messageId={}", chatId, messageId);
 
             // ===== 群聊@检查：只有群聊且未@机器人时，直接返回 =====
             if (isGroupChat(chatId)) {
@@ -150,8 +177,31 @@ public class MessageProcessor {
             }
             processedMessages.entrySet().removeIf(entry -> now - entry.getValue() > dedupCleanupMs);
 
+            // 获取 sender 信息（兼容标准结构和扁平结构）
+            FeishuSender sender = null;
+            if (callback != null && callback.getEvent() != null && callback.getEvent().getSender() != null) {
+                sender = callback.getEvent().getSender();
+            } else {
+                // 从 eventMap 直接解析 sender
+                @SuppressWarnings("unchecked")
+                Map<String, Object> eventMapForSender = (Map<String, Object>) body.get("event");
+                if (eventMapForSender != null) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> senderMap = (Map<String, Object>) eventMapForSender.get("sender");
+                    if (senderMap != null) {
+                        sender = objectMapper.convertValue(senderMap, FeishuSender.class);
+                    }
+                }
+            }
+            
+            if (sender == null) {
+                log.warn("无法解析 sender，使用默认值");
+                sender = new FeishuSender();
+                sender.setSenderId("unknown");
+            }
+
             // 分发处理（传递 cleanedText 和 mentions）
-            String reply = messageDispatcher.dispatch(cleanedText, callback.getEvent().getSender(), chatId, mentions);
+            String reply = messageDispatcher.dispatch(cleanedText, sender, chatId, mentions);
 
             // 发送回复
             if (reply != null && reply.startsWith("__CARD__")) {
@@ -160,7 +210,7 @@ public class MessageProcessor {
                 // 卡片消息也保存对话历史
                 aiUnderstandingService.saveConversationHistory(
                     chatId, 
-                    callback.getEvent().getSender().getId(),  // 使用 getId() 获取用户ID
+                    sender.getId(),  // 使用 getId() 获取用户ID
                     cleanedText, 
                     "[卡片消息]"
                 );
@@ -169,7 +219,7 @@ public class MessageProcessor {
                 // 保存对话历史到 Redis
                 aiUnderstandingService.saveConversationHistory(
                     chatId, 
-                    callback.getEvent().getSender().getId(),  // 使用 getId() 获取用户ID
+                    sender.getId(),  // 使用 getId() 获取用户ID
                     cleanedText, 
                     reply
                 );

@@ -36,6 +36,11 @@ public class FeishuSignatureVerifier {
             return true;
         }
 
+        // 如果时间戳或签名为空，验证失败
+        if (timestamp == null || signature == null || body == null) {
+            return false;
+        }
+
         try {
             // 构造签名内容：timestamp + "\n" + body
             String signContent = timestamp + "\n" + body;

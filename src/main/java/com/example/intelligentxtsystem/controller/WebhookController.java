@@ -1,7 +1,10 @@
 package com.example.intelligentxtsystem.controller;
 
+import com.example.intelligentxtsystem.config.FeishuEncryptDecoder;
+import com.example.intelligentxtsystem.config.FeishuSignatureVerifier;
 import com.example.intelligentxtsystem.service.ApprovalService;
 import com.example.intelligentxtsystem.service.MessageProcessor;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +40,12 @@ public class WebhookController {
     @Autowired
     private com.example.intelligentxtsystem.service.WelcomeEventHandler welcomeEventHandler;
 
+    @Autowired
+    private FeishuSignatureVerifier feishuSignatureVerifier;
+
+    @Autowired
+    private FeishuEncryptDecoder feishuEncryptDecoder;
+
     /**
      * 飞书回调入口（仅接受 POST 请求）
      * 飞书 URL 验证要求：
@@ -47,13 +56,46 @@ public class WebhookController {
             consumes = "application/json",
             produces = "application/json")
     public ResponseEntity<Map<String, Object>> handleWebhook(
-            @RequestBody String rawBody
+            @RequestBody String rawBody,
+            @RequestHeader(value = "X-Lark-Request-Timestamp", required = false) String timestamp,
+            @RequestHeader(value = "X-Lark-Request-Signature", required = false) String signature
     ) {
-        log.info("收到飞书请求: rawBody={}", rawBody);
+        log.info("收到飞书请求: type={}, timestamp={}", 
+                  rawBody.contains("\"type\"") ? "event" : "unknown", 
+                  timestamp);
+
+        // ===== 处理加密请求 =====
+        String bodyToProcess = rawBody;
+        if (feishuEncryptDecoder.isEncrypted(rawBody)) {
+            try {
+                JsonNode encryptNode = objectMapper.readTree(rawBody);
+                String encryptData = encryptNode.get("encrypt").asText();
+                bodyToProcess = feishuEncryptDecoder.decrypt(encryptData);
+                log.debug("解密后的请求体: {}", bodyToProcess.substring(0, Math.min(200, bodyToProcess.length())));
+            } catch (Exception e) {
+                log.error("解密失败，使用原始数据", e);
+                bodyToProcess = rawBody;
+            }
+        }
+
+        // ===== 签名验证 =====
+        if (timestamp != null && signature != null) {
+            if (!feishuSignatureVerifier.verify(timestamp, signature, rawBody)) {
+                log.warn("签名验证失败");
+                return ResponseEntity.status(401)
+                        .body(Map.of("code", 401, "msg", "签名验证失败"));
+            }
+        }
 
         try {
             // 解析 JSON
-            Map<String, Object> body = objectMapper.readValue(rawBody, Map.class);
+            log.debug("解析 JSON, 长度: {}", bodyToProcess.length());
+            
+            Map<String, Object> body = objectMapper.readValue(bodyToProcess, Map.class);
+            log.info("解析后的 body 包含 keys: {}", body.keySet());
+            // 检查 event 字段
+            Object eventObj = body.get("event");
+            log.info("event 字段是否存在: {}, 类型: {}", eventObj != null, eventObj != null ? eventObj.getClass() : "null");
 
             // ===== URL 验证请求（必须最优先处理）=====
             if ("url_verification".equals(body.get("type"))) {
@@ -70,12 +112,25 @@ public class WebhookController {
             }
 
             // ===== 处理业务事件 =====
+            // 兼容两种 JSON 结构：
+            // 1. 标准结构：{"schema": "2.0", "header": {...}, "event": {...}}
+            // 2. 扁平结构（解密后）：{"event_id": "...", "event_type": "...", "event": {...}}
+            String eventType = null;
+            Map<String, Object> eventData = null;
+            
             if (body.containsKey("header")) {
+                // 标准结构
                 @SuppressWarnings("unchecked")
                 Map<String, Object> header = (Map<String, Object>) body.get("header");
-                String eventType = (String) header.get("event_type");
-                log.info("收到飞书事件: event_type={}", eventType);
-
+                eventType = (String) header.get("event_type");
+                log.info("收到飞书事件（标准结构）: event_type={}", eventType);
+            } else if (body.containsKey("event_type")) {
+                // 扁平结构（解密后的数据）
+                eventType = (String) body.get("event_type");
+                log.info("收到飞书事件（扁平结构）: event_type={}", eventType);
+            }
+            
+            if (eventType != null) {
                 if ("im.message.receive_v1".equals(eventType)) {
                     messageProcessor.processMessageEvent(body);
                 }
@@ -98,6 +153,8 @@ public class WebhookController {
                 if ("card.action.trigger".equals(eventType)) {
                     handleCardAction(body);
                 }
+            } else {
+                log.warn("无法识别的事件类型，body keys: {}", body.keySet());
             }
 
             // 立即返回 200，不等待处理完成
