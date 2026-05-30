@@ -3,6 +3,7 @@ package com.example.intelligentxtsystem.service;
 import com.example.intelligentxtsystem.dto.CommandContext;
 import com.example.intelligentxtsystem.dto.FeishuSender;
 import com.example.intelligentxtsystem.dto.MessageContent;
+import com.example.intelligentxtsystem.task.TaskContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -61,7 +62,7 @@ public class MessageDispatcher {
      * @return 处理结果，null 表示静默丢弃
      */
     public String dispatch(String text, FeishuSender sender, String chatId) {
-        return dispatch(text, sender, chatId, null);
+        return dispatch(text, sender, chatId, null, null);
     }
 
     /**
@@ -74,11 +75,30 @@ public class MessageDispatcher {
      */
     public String dispatch(String text, FeishuSender sender, String chatId,
                           java.util.List<MessageContent.Mention> mentions) {
+        return dispatch(text, sender, chatId, mentions, null);
+    }
+
+    /**
+     * 分发消息（带 taskId，支持细粒度状态更新）
+     * @param text     消息文本
+     * @param sender   发送者信息
+     * @param chatId   群聊 ID
+     * @param mentions 被 @ 的成员列表（来自飞书消息的 mentions 字段）
+     * @param taskId   任务ID（用于状态跟踪，可为null）
+     * @return 处理结果，null 表示静默丢弃
+     */
+    public String dispatch(String text, FeishuSender sender, String chatId,
+                          java.util.List<MessageContent.Mention> mentions, String taskId) {
         if (text == null || text.trim().isEmpty()) {
             return null; // Level 3：空消息，静默丢弃
         }
 
         String trimmedText = text.trim();
+
+        // 保存 taskId 到线程上下文（供命令处理器使用）
+        if (taskId != null && !taskId.isEmpty()) {
+            TaskContext.setTaskId(taskId);
+        }
 
         // ===== Level 4：AI 智能理解（优先处理非/开头的消息）=====
         // 如果消息不以 / 开头，且是@机器人的消息，调用 AI 理解意图
@@ -100,6 +120,7 @@ public class MessageDispatcher {
         // ===== Level 3：非@机器人的非指令消息，静默丢弃 =====
         if (!trimmedText.startsWith("/")) {
             log.debug("Level 3：非指令消息且未@机器人，静默丢弃: {}", trimmedText);
+            TaskContext.clear();
             return null;
         }
 
@@ -117,7 +138,7 @@ public class MessageDispatcher {
         // ===== Level 1：精确匹配 =====
         if (commandRegistry.hasCommand(commandName)) {
             log.info("Level 1：精确匹配 /{}", commandName);
-            return executeCommand(commandName, args, sender, chatId, trimmedText, mentions);
+            return executeCommand(commandName, args, sender, chatId, trimmedText, mentions, taskId);
         }
 
         // ===== Level 2：模糊匹配 =====
@@ -139,15 +160,24 @@ public class MessageDispatcher {
      */
     private String executeCommand(String commandName, String args,
                                  FeishuSender sender, String chatId, String rawMessage) {
-        return executeCommand(commandName, args, sender, chatId, rawMessage, null);
+        return executeCommand(commandName, args, sender, chatId, rawMessage, null, null);
     }
 
     /**
-     * 执行指令（带 mentions）
+     * 执行指令（带 mentions，兼容旧调用）
      */
     private String executeCommand(String commandName, String args,
                                  FeishuSender sender, String chatId, String rawMessage,
                                  java.util.List<MessageContent.Mention> mentions) {
+        return executeCommand(commandName, args, sender, chatId, rawMessage, mentions, null);
+    }
+
+    /**
+     * 执行指令（带 mentions 和 taskId）
+     */
+    private String executeCommand(String commandName, String args,
+                                 FeishuSender sender, String chatId, String rawMessage,
+                                 java.util.List<MessageContent.Mention> mentions, String taskId) {
         CommandContext context = new CommandContext();
         context.setCommandName(commandName);
         context.setArgs(args);
@@ -155,15 +185,19 @@ public class MessageDispatcher {
         context.setChatId(chatId);
         context.setRawMessage(rawMessage);
         context.setMentions(mentions);
+        context.setTaskId(taskId); // 设置 taskId，供命令处理器使用
 
         try {
-            log.info("执行指令: /{}，参数: {}，mentions: {}", commandName, args,
-                    mentions != null ? mentions.size() : 0);
+            log.info("执行指令: /{}，参数: {}，mentions: {}，taskId: {}", commandName, args,
+                    mentions != null ? mentions.size() : 0, taskId);
             Object result = commandRegistry.execute(commandName, context);
             return result != null ? result.toString() : null;
         } catch (Exception e) {
-            log.error("执行指令失败: /{}", commandName, e);
+            log.error("执行指令失败: /{}，taskId: {}", commandName, taskId, e);
             return "❌ 执行指令失败: " + e.getMessage();
+        } finally {
+            // 清理线程上下文
+            TaskContext.clear();
         }
     }
 

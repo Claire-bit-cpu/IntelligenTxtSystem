@@ -5,6 +5,7 @@ import com.example.intelligentxtsystem.dto.FeishuCallback;
 import com.example.intelligentxtsystem.dto.FeishuSender;
 import com.example.intelligentxtsystem.dto.MessageContent;
 import com.example.intelligentxtsystem.service.AiUnderstandingService;
+import com.example.intelligentxtsystem.task.AsyncTaskStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,9 +73,12 @@ public class MessageProcessor {
      *   5. 消息去重
      *   6. 分发并处理指令
      *   7. 发送回复
+     *
+     * @param body 事件内容
+     * @param taskId 任务ID（用于状态跟踪，可为null）
      */
     @Async("messageExecutor")
-    public void processMessageEvent(Map<String, Object> body) {
+    public void processMessageEvent(Map<String, Object> body, String taskId) {
         try {
             // 直接从原始 body 解析 content（兼容 content 是 String 或 Map 两种情况）
             @SuppressWarnings("unchecked")
@@ -121,6 +125,9 @@ public class MessageProcessor {
             
             log.info("解析成功: chatId={}, messageId={}", chatId, messageId);
 
+            // ===== 更新任务状态：开始处理 (10%) =====
+            updateMessageTaskProgress(taskId, 10, "消息解析完成，开始处理");
+
             // ===== 群聊@检查：只有群聊且未@机器人时，直接返回 =====
             if (isGroupChat(chatId)) {
                 // 从 message.mentions 解析 mentions
@@ -158,6 +165,9 @@ public class MessageProcessor {
 
             log.info("解析后 text: {}, mentions 数量: {}", text,
                     mentions != null ? mentions.size() : "null");
+
+            // ===== 更新任务状态：核心逻辑执行中 (50%) =====
+            updateMessageTaskProgress(taskId, 50, "正在分发处理指令");
 
             if (text == null || text.isEmpty()) {
                 return;
@@ -200,8 +210,11 @@ public class MessageProcessor {
                 sender.setSenderId("unknown");
             }
 
-            // 分发处理（传递 cleanedText 和 mentions）
-            String reply = messageDispatcher.dispatch(cleanedText, sender, chatId, mentions);
+            // 分发处理（传递 cleanedText、mentions 和 taskId）
+            String reply = messageDispatcher.dispatch(cleanedText, sender, chatId, mentions, taskId);
+
+            // ===== 更新任务状态：结果格式化 (80%) =====
+            updateMessageTaskProgress(taskId, 80, "指令处理完成，准备发送回复");
 
             // 发送回复
             if (reply != null && reply.startsWith("__CARD__")) {
@@ -218,15 +231,26 @@ public class MessageProcessor {
                 feishuClient.sendText(chatId, reply);
                 // 保存对话历史到 Redis
                 aiUnderstandingService.saveConversationHistory(
-                    chatId, 
+                    chatId,
                     sender.getId(),  // 使用 getId() 获取用户ID
-                    cleanedText, 
+                    cleanedText,
                     reply
                 );
             }
 
+            // ===== 更新任务状态：完成 (100%) =====
+            updateMessageTaskProgress(taskId, 100, "回复已发送，任务完成");
+
         } catch (Exception e) {
-            log.error("异步处理消息事件异常", e);
+            log.error("异步处理消息事件异常: taskId={}", taskId, e);
+            // 标记任务失败
+            if (taskId != null && !taskId.isEmpty()) {
+                try {
+                    AsyncTaskStatus.markFailed(taskId, e.getMessage());
+                } catch (Exception ex) {
+                    log.warn("标记任务失败状态时出错: taskId={}", taskId, ex);
+                }
+            }
         }
     }
 
@@ -238,6 +262,23 @@ public class MessageProcessor {
      */
     private boolean isGroupChat(String chatId) {
         return chatId != null && chatId.startsWith(GROUP_CHAT_PREFIX);
+    }
+
+    /**
+     * 更新任务进度（辅助方法，避免重复代码）
+     * @param taskId 任务ID（可为null）
+     * @param progress 进度（0-100）
+     * @param statusMsg 状态描述信息
+     */
+    private void updateMessageTaskProgress(String taskId, int progress, String statusMsg) {
+        if (taskId == null || taskId.isEmpty()) {
+            return;
+        }
+        try {
+            AsyncTaskStatus.updateTaskProgress(taskId, progress, statusMsg);
+        } catch (Exception e) {
+            log.warn("更新任务进度失败: taskId={}, error={}", taskId, e.getMessage());
+        }
     }
 
     /**

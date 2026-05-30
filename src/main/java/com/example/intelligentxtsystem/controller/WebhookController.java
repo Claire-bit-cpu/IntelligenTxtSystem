@@ -4,6 +4,7 @@ import com.example.intelligentxtsystem.config.FeishuEncryptDecoder;
 import com.example.intelligentxtsystem.config.FeishuSignatureVerifier;
 import com.example.intelligentxtsystem.service.EventAsyncProcessor;
 import com.example.intelligentxtsystem.service.IdempotentService;
+import com.example.intelligentxtsystem.task.AsyncTaskStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +17,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 飞书 Webhook 回调入口
@@ -85,6 +87,9 @@ public class WebhookController {
     ) {
         long startTime = System.currentTimeMillis();
         log.info("收到飞书请求: timestamp={}", timestamp);
+        
+        // 提前声明 taskId，确保在 catch 块中可访问
+        String taskId = null;
 
         // ===== 限流检查（可选，如果RateLimitService不可用则跳过）=====
         if (rateLimitEnabled && rateLimitService != null) {
@@ -160,24 +165,44 @@ public class WebhookController {
 
             log.info("收到飞书事件: event_type={}, event_id={}", eventType, eventId);
 
+            // ===== 生成任务ID =====
+            taskId = UUID.randomUUID().toString();
+            
+            // ===== 创建任务状态记录 =====
+            AsyncTaskStatus task = new AsyncTaskStatus(taskId, eventType, eventId);
+            AsyncTaskStatus.save(task);
+            log.info("创建异步任务: taskId={}, eventType={}", taskId, eventType);
+
             // ===== 幂等性检查 =====
             if (eventId != null && !eventId.isEmpty()) {
                 if (idempotentService.isAlreadyProcessed(eventId)) {
-                    // 已处理过，直接返回成功
-                    return createSuccessResponse(startTime);
+                    // 已处理过，标记任务完成
+                    AsyncTaskStatus.markCompleted(taskId, "事件已处理过");
+                    return createSuccessResponseWithTaskId(startTime, taskId);
                 }
             }
 
             // ===== 异步处理业务事件 =====
-            submitAsyncTask(eventType, body, eventId);
+            submitAsyncTask(eventType, body, eventId, taskId);
 
-            // ===== 立即返回成功响应 =====
-            return createSuccessResponse(startTime);
+            // ===== 立即返回成功响应（包含taskId）=====
+            return createSuccessResponseWithTaskId(startTime, taskId);
 
         } catch (Exception e) {
-            log.error("处理请求异常", e);
+            log.error("处理请求异常: taskId={}", taskId, e);
             // 注意：即使处理失败，也返回200，避免飞书重试
             // 错误信息记录在日志中，通过监控系统告警
+            
+            // 如果已生成 taskId，标记任务失败并返回 taskId
+            if (taskId != null) {
+                try {
+                    AsyncTaskStatus.markFailed(taskId, e.getMessage());
+                } catch (Exception ex) {
+                    log.warn("标记任务失败状态时出错: taskId={}", taskId, ex);
+                }
+                return createSuccessResponseWithTaskId(startTime, taskId);
+            }
+            
             return createSuccessResponse(startTime);
         }
     }
@@ -251,40 +276,46 @@ public class WebhookController {
     }
 
     /**
-     * 提交异步任务
+     * 提交异步任务（带任务ID）
      */
     @SuppressWarnings("unchecked")
-    private void submitAsyncTask(String eventType, Map<String, Object> body, String eventId) {
+    private void submitAsyncTask(String eventType, Map<String, Object> body, String eventId, String taskId) {
         try {
+            // 标记任务开始处理
+            AsyncTaskStatus.markProcessing(taskId);
+
             // 消息接收事件
             if ("im.message.receive_v1".equals(eventType)) {
-                eventAsyncProcessor.processMessageEventAsync(body, eventId);
+                eventAsyncProcessor.processMessageEventAsync(body, eventId, taskId);
                 return;
             }
 
             // 新成员入群事件
             if (isMemberAddedEvent(eventType)) {
                 Map<String, Object> event = (Map<String, Object>) body.get("event");
-                eventAsyncProcessor.processMemberAddedEventAsync(eventType, event, eventId);
+                eventAsyncProcessor.processMemberAddedEventAsync(eventType, event, eventId, taskId);
                 return;
             }
 
             // 审批状态变更事件
             if ("approval.instance.state_change_v4".equals(eventType)) {
                 Map<String, Object> event = (Map<String, Object>) body.get("event");
-                eventAsyncProcessor.processApprovalEventAsync(event, eventId);
+                eventAsyncProcessor.processApprovalEventAsync(event, eventId, taskId);
                 return;
             }
 
             // 卡片按钮点击事件
             if ("card.action.trigger".equals(eventType)) {
-                eventAsyncProcessor.processCardActionAsync(body, eventId);
+                eventAsyncProcessor.processCardActionAsync(body, eventId, taskId);
                 return;
             }
 
             log.warn("未处理的事件类型: {}", eventType);
+            AsyncTaskStatus.markCompleted(taskId, "未处理的事件类型: " + eventType);
         } catch (Exception e) {
-            log.error("提交异步任务失败: eventType={}, eventId={}", eventType, eventId, e);
+            log.error("提交异步任务失败: eventType={}, eventId={}, taskId={}", eventType, eventId, taskId, e);
+            // 标记任务失败
+            AsyncTaskStatus.markFailed(taskId, e.getMessage());
             // 提交失败，移除幂等键，允许重试
             if (eventId != null && !eventId.isEmpty()) {
                 idempotentService.removeIdempotentKey(eventId);
@@ -302,6 +333,21 @@ public class WebhookController {
         
         long elapsedTime = System.currentTimeMillis() - startTime;
         log.info("Webhook请求处理完成(已异步提交), 耗时: {}ms", elapsedTime);
+        
+        return ResponseEntity.ok(ok);
+    }
+
+    /**
+     * 创建成功响应（包含taskId）并记录耗时
+     */
+    private ResponseEntity<Map<String, Object>> createSuccessResponseWithTaskId(long startTime, String taskId) {
+        Map<String, Object> ok = new HashMap<>();
+        ok.put("code", 0);
+        ok.put("msg", "ok");
+        ok.put("task_id", taskId);
+        
+        long elapsedTime = System.currentTimeMillis() - startTime;
+        log.info("Webhook请求处理完成(已异步提交), taskId={}, 耗时: {}ms", taskId, elapsedTime);
         
         return ResponseEntity.ok(ok);
     }
