@@ -42,8 +42,8 @@ Write-Host "测试报告已生成：" -ForegroundColor Yellow
 Write-Host "  target\surefire-reports\"
 Write-Host ""
 Write-Host "查看详细报告：" -ForegroundColor Yellow
-Write-Host "  target\surefire-reports\TEST-com.example.intelligentxtsystem.service.AuthServiceTest.xml"
-Write-Host "  target\surefire-reports\TEST-com.example.intelligentxtsystem.service.CommandAuthTest.xml"
+Write-Host "  target\surefire-reports\TEST-com.example.IntelligentRobot.service.AuthServiceTest.xml"
+Write-Host "  target\surefire-reports\TEST-com.example.IntelligentRobot.service.CommandAuthTest.xml"
 
 Write-Host ""
 Write-Host "提示：使用浏览器打开 target\surefire-reports\index.html 查看可视化报告" -ForegroundColor Cyan

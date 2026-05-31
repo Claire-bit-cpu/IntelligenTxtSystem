@@ -63,5 +63,5 @@ ratelimit:
 # 日志配置（测试环境更详细）
 logging:
   level:
-    com.example.intelligentxtsystem: DEBUG
-    com.example.intelligentxtsystem.client: DEBUG
+    com.example.intelligentRobot: DEBUG
+    com.example.intelligentRobot.service.client: DEBUG

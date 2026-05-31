@@ -42,7 +42,7 @@ echo 测试报告已生成：
 echo   target/surefire-reports/
 echo.
 echo 查看详细报告：
-echo   target/surefire-reports/TEST-com.example.intelligentxtsystem.service.AuthServiceTest.xml
-echo   target/surefire-reports/TEST-com.example.intelligentxtsystem.service.CommandAuthTest.xml
+echo   target/surefire-reports/TEST-com.example.IntelligentRobot.service.AuthServiceTest.xml
+echo   target/surefire-reports/TEST-com.example.IntelligentRobot.service.CommandAuthTest.xml
 
 exit /b 0
