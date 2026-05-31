@@ -1,0 +1,114 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------< com.example:IntelligenTxtSystem >-------------------
+[INFO] Building IntelligenTxtSystem 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] >>> spring-boot:3.2.5:run (default-cli) > test-compile @ IntelligenTxtSystem >>>
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ IntelligenTxtSystem ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] Copying 0 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ IntelligenTxtSystem ---
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 106 source files with javac [debug release 17] to target\classes
+[WARNING] /F:/IDEA project/IntelligenTxtSystem/src/main/java/com/example/intelligentxtsystem/dto/CommandDefinition.java:[31,21] 未使用 @Deprecated 对已过时的项目进行注释
+[WARNING] /F:/IDEA project/IntelligenTxtSystem/src/main/java/com/example/intelligentxtsystem/annotation/Command.java:[45,13] 未使用 @Deprecated 对已过时的项目进行注释
+[INFO] /F:/IDEA project/IntelligenTxtSystem/src/main/java/com/example/intelligentxtsystem/service/CommandScanner.java: F:\IDEA project\IntelligenTxtSystem\src\main\java\com\example\intelligentxtsystem\service\CommandScanner.java使用或覆盖了已过时的 API。
+[INFO] /F:/IDEA project/IntelligenTxtSystem/src/main/java/com/example/intelligentxtsystem/service/CommandScanner.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] /F:/IDEA project/IntelligenTxtSystem/src/main/java/com/example/intelligentxtsystem/client/GitHubClient.java: 某些输入文件使用了未经检查或不安全的操作。
+[INFO] /F:/IDEA project/IntelligenTxtSystem/src/main/java/com/example/intelligentxtsystem/client/GitHubClient.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ IntelligenTxtSystem ---
+[INFO] Copying 1 resource from src\test\resources to target\test-classes
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ IntelligenTxtSystem ---
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 9 source files with javac [debug release 17] to target\test-classes
+[INFO] 
+[INFO] <<< spring-boot:3.2.5:run (default-cli) < test-compile @ IntelligenTxtSystem <<<
+[INFO] 
+[INFO] 
+[INFO] --- spring-boot:3.2.5:run (default-cli) @ IntelligenTxtSystem ---
+[INFO] Attaching agents: []
+SLF4J(W): Class path contains multiple SLF4J providers.
+SLF4J(W): Found provider [ch.qos.logback.classic.spi.LogbackServiceProvider@512ddf17]
+SLF4J(W): Found provider [org.slf4j.simple.SimpleServiceProvider@2c13da15]
+SLF4J(W): See https://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J(I): Actual provider is of type [ch.qos.logback.classic.spi.LogbackServiceProvider@512ddf17]
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v3.2.5)
+
+2026-05-31 09:07:34.543 INFO  c.e.i.IntelligenTxtSystemApplication - Starting IntelligenTxtSystemApplication using Java 17.0.18 with PID 34360 (F:\IDEA project\IntelligenTxtSystem\target\classes started by 32032 in F:\IDEA project\IntelligenTxtSystem)
+2026-05-31 09:07:34.545 INFO  c.e.i.IntelligenTxtSystemApplication - No active profile set, falling back to 1 default profile: "default"
+2026-05-31 09:07:35.015 INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Multiple Spring Data modules found, entering strict repository configuration mode
+2026-05-31 09:07:35.017 INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-05-31 09:07:35.040 INFO  o.s.d.r.c.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 15 ms. Found 0 Redis repository interfaces.
+2026-05-31 09:07:35.446 INFO  o.s.b.w.e.tomcat.TomcatWebServer - Tomcat initialized with port 8082 (http)
+2026-05-31 09:07:35.455 INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
+2026-05-31 09:07:35.456 INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.20]
+2026-05-31 09:07:35.511 INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-05-31 09:07:35.512 INFO  o.s.b.w.s.c.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 932 ms
+2026-05-31 09:07:35.594 INFO  c.e.i.c.ApplicationContextProvider - ApplicationContext 已初始化
+2026-05-31 09:07:35.832 INFO  c.e.i.service.ContextManager - 上下文管理器初始化完成（Redis 持久化模式）
+2026-05-31 09:07:35.837 INFO  c.e.i.service.AiUnderstandingService - AI 智能理解服务初始化完成
+2026-05-31 09:07:35.868 INFO  c.e.i.task.TaskStatusService - 任务状态存储模式: memory
+2026-05-31 09:07:35.870 INFO  c.e.i.service.TaskMonitorService - 已重置监控消息ID，下次将发送新消息
+2026-05-31 09:07:35.956 INFO  c.e.i.s.NotificationConfigService - 通知配置数据库初始化完成: ./notification.db
+2026-05-31 09:07:35.963 INFO  c.e.i.service.MessageDispatcher - MessageDispatcher 初始化完成，已加载 0 个指令
+2026-05-31 09:07:35.975 INFO  c.e.i.config.AsyncConfig - 低优先级事件线程池初始化完成: core=5, max=20, queue=2000
+2026-05-31 09:07:35.990 INFO  o.s.b.f.a.AutowiredAnnotationBeanPostProcessor - Inconsistent constructor declaration on bean with name 'createBranchCommandHandler': single autowire-marked constructor flagged as optional - this constructor is effectively required since there is no default constructor to fall back to: public com.example.intelligentxtsystem.service.handler.CreateBranchCommandHandler(com.example.intelligentxtsystem.client.GitHubClient,com.example.intelligentxtsystem.config.GitHubConfig,org.springframework.data.redis.core.StringRedisTemplate,com.example.intelligentxtsystem.service.ConfirmService)
+2026-05-31 09:07:35.992 INFO  c.e.i.s.handler.DeployCommandHandler - 加载部署配置: dev:Claire-bit-cpu/Test:deploy-dev.yml:develop,test:Claire-bit-cpu/Test:deploy-test.yml:test,staging:Claire-bit-cpu/Test:deploy-staging.yml:staging,prod:Claire-bit-cpu/Test:deploy-prod.yml:main
+2026-05-31 09:07:35.994 INFO  o.s.b.f.a.AutowiredAnnotationBeanPostProcessor - Inconsistent constructor declaration on bean with name 'groupCommandHandler': single autowire-marked constructor flagged as optional - this constructor is effectively required since there is no default constructor to fall back to: public com.example.intelligentxtsystem.service.handler.GroupCommandHandler(com.example.intelligentxtsystem.client.FeishuClient,com.example.intelligentxtsystem.service.ConfirmService)
+2026-05-31 09:07:36.004 INFO  c.e.i.service.SearchIndexService - 搜索索引数据库初始化完成: ./search-index.db, 已索引文档数: 0
+2026-05-31 09:07:36.013 INFO  c.e.i.config.AsyncConfig - 高优先级事件线程池初始化完成: core=48, max=50, queue=1000
+2026-05-31 09:07:36.082 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.syncSuccess(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/sync-success"}, produces={}, value={"/sync-success"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/sync-success"}, produces={}, value={"/sync-success"})]
+2026-05-31 09:07:36.082 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.syncFailure(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/sync-failure"}, produces={}, value={"/sync-failure"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/sync-failure"}, produces={}, value={"/sync-failure"})]
+2026-05-31 09:07:36.083 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.exceptionAlert(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/exception-alert"}, produces={}, value={"/exception-alert"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/exception-alert"}, produces={}, value={"/exception-alert"})]
+2026-05-31 09:07:36.083 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.docAdded(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/doc-added"}, produces={}, value={"/doc-added"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/doc-added"}, produces={}, value={"/doc-added"})]
+2026-05-31 09:07:36.083 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.docModified(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/doc-modified"}, produces={}, value={"/doc-modified"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/doc-modified"}, produces={}, value={"/doc-modified"})]
+2026-05-31 09:07:36.084 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.maintenanceStart(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/maintenance-start"}, produces={}, value={"/maintenance-start"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/maintenance-start"}, produces={}, value={"/maintenance-start"})]
+2026-05-31 09:07:36.084 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.todoReminder(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/todo-reminder"}, produces={}, value={"/todo-reminder"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/todo-reminder"}, produces={}, value={"/todo-reminder"})]
+2026-05-31 09:07:36.084 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.meetingConfirmation(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/meeting-confirmation"}, produces={}, value={"/meeting-confirmation"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/meeting-confirmation"}, produces={}, value={"/meeting-confirmation"})]
+2026-05-31 09:07:36.084 WARN  o.s.w.s.m.m.a.RequestMappingHandlerMapping - Multiple @RequestMapping annotations found on public java.lang.Object com.example.intelligentxtsystem.controller.NotificationConfigController.maintenanceComplete(java.lang.String), but only the first will be used: [@org.springframework.web.bind.annotation.GetMapping(consumes={}, headers={}, name="", params={}, path={"/maintenance-complete"}, produces={}, value={"/maintenance-complete"}), @org.springframework.web.bind.annotation.PostMapping(consumes={}, headers={}, name="", params={}, path={"/maintenance-complete"}, produces={}, value={"/maintenance-complete"})]
+2026-05-31 09:07:36.281 WARN  o.s.b.w.s.c.AnnotationConfigServletWebServerApplicationContext - Exception encountered during context initialization - cancelling refresh attempt: org.springframework.context.ApplicationContextException: Failed to start bean 'webServerStartStop'
+2026-05-31 09:07:36.295 INFO  o.s.b.a.l.ConditionEvaluationReportLogger - 
+
+Error starting ApplicationContext. To display the condition evaluation report re-run your application with 'debug' enabled.
+2026-05-31 09:07:36.307 ERROR o.s.b.d.LoggingFailureAnalysisReporter - 
+
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Web server failed to start. Port 8082 was already in use.
+
+Action:
+
+Identify and stop the process that's listening on port 8082 or configure this application to listen on another port.
+
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  10.479 s
+[INFO] Finished at: 2026-05-31T09:07:36+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.springframework.boot:spring-boot-maven-plugin:3.2.5:run (default-cli) on project IntelligenTxtSystem: Process terminated with exit code: 1 -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException
+
+F:\IDEA project\IntelligenTxtSystem>

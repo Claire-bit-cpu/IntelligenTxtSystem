@@ -1,0 +1,67 @@
+# 测试环境配置
+# 使用 test profile 时自动加载此文件
+# 激活方式：@ActiveProfiles("test") 或 --spring.profiles.active=test
+
+spring:
+  data:
+    redis:
+      # 测试环境使用本地 Redis（如果没有 Redis，可以注释掉相关测试）
+      host: localhost
+      port: 6379
+      password:
+      database: 1  # 使用不同的数据库，避免污染开发环境
+
+# 禁用外部服务
+jira:
+  enabled: false
+
+gitlab:
+  enabled: false
+
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false
+
+# 禁用 AI（避免测试时调用外部 API）
+ai:
+  enabled: false
+
+# 禁用模糊匹配（可选）
+fuzzy-match:
+  enabled: false
+
+# 飞书配置（测试环境留空）
+feishu:
+  app-id: test-app-id
+  app-secret: test-app-secret
+  encrypt-key:
+
+# 高德天气 API（测试环境留空）
+amap:
+  key: test-key
+
+# 通义千问 API（测试环境留空，相关测试需要 Mock）
+qianwen:
+  api-key: test-key
+  api-url: https://test-api.example.com
+  model: test-model
+  max-diff-length: 8000
+
+# GitHub 配置（测试环境）
+github:
+  token: test-token
+  enabled: false  # 禁用，使用 Mock
+  webhook:
+    auto-review: false
+
+# 限流配置（测试环境放宽限制）
+ratelimit:
+  enabled: false  # 禁用限流，避免影响测试
+
+# 日志配置（测试环境更详细）
+logging:
+  level:
+    com.example.intelligentxtsystem: DEBUG
+    com.example.intelligentxtsystem.client: DEBUG
