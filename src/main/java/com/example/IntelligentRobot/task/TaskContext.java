@@ -1,5 +1,8 @@
 package com.example.IntelligentRobot.task;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * 任务上下文（线程局部变量）
  * 
@@ -14,8 +17,20 @@ package com.example.IntelligentRobot.task;
  */
 public class TaskContext {
     
+    private static final Logger log = LoggerFactory.getLogger(TaskContext.class);
+    
     private static final ThreadLocal<String> TASK_ID_HOLDER = new ThreadLocal<>();
     private static final ThreadLocal<String> CHAT_ID_HOLDER = new ThreadLocal<>();
+    
+    // TaskStatusService 实例（需要通过 setter 注入，避免循环依赖）
+    private static TaskStatusService taskStatusService;
+    
+    /**
+     * 设置 TaskStatusService（由 Spring 容器调用）
+     */
+    public static void setTaskStatusService(TaskStatusService service) {
+        taskStatusService = service;
+    }
     
     /**
      * 设置当前线程的 taskId
@@ -69,11 +84,15 @@ public class TaskContext {
         String taskId = getTaskId();
         if (taskId != null) {
             try {
-                AsyncTaskStatus.updateTaskProgress(taskId, progress, statusMsg);
+                // 通过 TaskStatusService 更新任务进度
+                if (taskStatusService != null) {
+                    taskStatusService.updateTaskProgress(taskId, progress, statusMsg);
+                } else {
+                    log.warn("TaskStatusService 未注入，无法更新任务进度: taskId={}", taskId);
+                }
             } catch (Exception e) {
                 // 静默处理，不影响主流程
-                org.slf4j.LoggerFactory.getLogger(TaskContext.class)
-                        .warn("更新任务进度失败: taskId={}, error={}", taskId, e.getMessage());
+                log.warn("更新任务进度失败: taskId={}, error={}", taskId, e.getMessage());
             }
         }
     }

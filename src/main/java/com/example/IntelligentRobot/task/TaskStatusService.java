@@ -137,6 +137,34 @@ public class TaskStatusService {
             MEMORY_STORE.remove(taskId);
         }
     }
+    
+    /**
+     * 更新任务进度（便捷方法）
+     * @param taskId 任务ID
+     * @param progress 进度（0-100）
+     * @param statusMsg 状态描述信息
+     */
+    public void updateTaskProgress(String taskId, int progress, String statusMsg) {
+        update(taskId, task -> {
+            task.setProgress(progress);
+            if (statusMsg != null) {
+                task.setStatusMsg(statusMsg);
+            }
+            
+            // 根据进度自动更新状态
+            if (progress >= 100) {
+                task.setStatus(AsyncTaskStatus.Status.COMPLETED);
+                // 计算任务耗时
+                if (task.getCreatedAt() != null) {
+                    long duration = System.currentTimeMillis() - task.getCreatedAt()
+                            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+                    task.setDurationMs(duration);
+                }
+            } else if (progress > 0 && task.getStatus() == AsyncTaskStatus.Status.PENDING) {
+                task.setStatus(AsyncTaskStatus.Status.PROCESSING);
+            }
+        });
+    }
 
     /**
      * 获取当前任务数量

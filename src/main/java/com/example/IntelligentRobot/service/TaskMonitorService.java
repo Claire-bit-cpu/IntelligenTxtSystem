@@ -205,14 +205,26 @@ public class TaskMonitorService {
 
     /**
      * 构建任务监控文本（使用飞书 Markdown 格式）
+     * 只显示代码审查任务
      */
     private String buildMonitorText() {
         List<AsyncTaskStatus> tasks;
         try {
-            tasks = taskStatusService.listTasks(null, null);
+            // 只获取代码审查任务（通过 eventType 筛选）
+            tasks = taskStatusService.listTasks(null, "code_review");
+            
+            // 如果没有代码审查任务，尝试获取所有任务（兼容旧数据）
+            if (tasks.isEmpty()) {
+                tasks = taskStatusService.listTasks(null, null);
+            }
         } catch (Exception e) {
             log.warn("获取任务列表失败: {}", e.getMessage());
             return null;
+        }
+
+        // 如果没有任务，返回简单提示
+        if (tasks.isEmpty()) {
+            return "🤖 **任务监控面板**\n\n暂无任务";
         }
 
         int total = tasks.size();
@@ -228,7 +240,7 @@ public class TaskMonitorService {
                 .orElse(0);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("🤖 **任务监控面板**\n\n");
+        sb.append("🤖 **代码审查任务监控**\n\n");
 
         // 统计信息
         sb.append("📊 **任务统计**\n");
