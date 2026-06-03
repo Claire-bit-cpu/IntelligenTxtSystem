@@ -168,9 +168,9 @@ notification.dedup:
 notification.batch:
   # 是否启用消息合并，默认 true
   enabled: ${NOTIFICATION_BATCH_ENABLED:true}
-  # 合并窗口时间（秒），默认 300 秒（5 分钟）
+  # 合并窗口时间（秒），默认 600 秒（10 分钟）
   # 窗口内的同类消息会被合并为一条摘要推送
-  window-seconds: ${NOTIFICATION_BATCH_WINDOW_SECONDS:300}
+  window-seconds: ${NOTIFICATION_BATCH_WINDOW_SECONDS:600}
   # 合并阈值，达到此数量立即推送（不等待窗口到期），默认 5
   threshold: ${NOTIFICATION_BATCH_THRESHOLD:5}
 

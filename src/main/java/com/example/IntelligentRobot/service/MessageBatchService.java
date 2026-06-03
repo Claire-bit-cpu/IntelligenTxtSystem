@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
  * 功能：将短时间内的同类消息合并为一条摘要推送
  * 
  * 使用场景：
- * - CI/CD 构建：5 分钟内多次构建失败，合并为一条摘要
+ * - CI/CD 构建：10 分钟内多次构建失败，合并为一条摘要
  * - 监控告警：同一服务多个实例告警，合并为一条
  * - JIRA 更新：短时间内多个任务状态变更，合并通知
  * 
@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit;
  * 
  * 配置项：
  * - notification.batch.enabled: 是否启用消息合并（默认 true）
- * - notification.batch.window-seconds: 合并窗口时间（默认 300 秒，5 分钟）
+ * - notification.batch.window-seconds: 合并窗口时间（默认 600 秒，10 分钟）
  * - notification.batch.threshold: 合并阈值，达到此数量立即推送（默认 5）
  */
 @Service
@@ -43,9 +43,9 @@ public class MessageBatchService {
     private com.example.IntelligentRobot.client.FeishuClient feishuClient;
 
     /**
-     * 合并窗口时间（秒），默认 300 秒（5 分钟）
+     * 合并窗口时间（秒），默认 600 秒（10 分钟）
      */
-    @Value("${notification.batch.window-seconds:300}")
+    @Value("${notification.batch.window-seconds:600}")
     private int batchWindowSeconds;
 
     /**
