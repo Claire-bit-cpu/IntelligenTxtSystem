@@ -105,6 +105,308 @@
 
 ### 3. 高级功能扩展
 
+#### 3.0 智能降噪功能 ⭐
+
+**功能概述**：通过消息去重和消息合并技术，有效减少通知疲劳，提升团队协作效率。
+
+##### 核心特性
+
+| 特性 | 说明 | 适用场景 |
+|------|------|----------|
+| **消息去重** | 短时间内（默认5分钟）相同内容的消息只推送一次 | 避免重复告警、重复操作通知 |
+| **消息合并** | 短时间内（默认5分钟）同类消息合并为一条摘要推送 | 批量操作、频繁事件通知 |
+| **立即发送** | 关键通知（如 Push 事件）跳过合并队列，确保消息顺序 | GitHub Push 通知需在代码审查通知之前到达 |
+
+##### 降噪策略配置
+
+```yaml
+# application-prod.yaml
+notification:
+  noise-reduction-enabled: true  # 启用智能降噪（默认 true）
+  
+  dedup:
+    window-seconds: 300  # 去重窗口：5分钟（300秒）
+  
+  batch:
+    enabled: true  # 启用消息合并（默认 true）
+    window-seconds: 300  # 合并窗口：5分钟
+    threshold: 5  # 合并阈值：达到5条立即推送合并摘要
+```
+
+##### 已集成降噪的指令
+
+| 指令/功能 | 事件类型 | 降噪类型 | 去重窗口 | 说明 |
+|-----------|---------|---------|----------|------|
+| `/ai <问题>` | AI_QUERY | **去重** | 30秒 | 避免用户重复提问相同问题 |
+| `/deploy <环境>` | DEPLOY | 去重 + 合并 | 5分钟 | 避免频繁部署产生大量通知 |
+| `/createbranch <仓库> <分支>` | BRANCH_CREATE | 去重 + 合并 | 5分钟 | 批量创建分支时合并通知 |
+| `/review <仓库> <PR号>` | CODE_REVIEW | 去重 + 合并 | 5分钟 | 避免重复审查同一代码 |
+| `/cr <仓库> <PR号>` | CODE_REVIEW | 去重 + 合并 | 5分钟 | 兼容旧命令，与 `/review` 共用降噪 |
+| GitHub Push 事件 | GITHUB_PUSH | **立即发送** | - | 跳过合并队列，确保 Push 通知在代码审查通知之前到达 |
+| GitHub PR 事件 | GITHUB_PR | 去重 + 合并 | 5分钟 | PR 通知合并 |
+| 自动代码审查完成 | CODE_REVIEW | 去重 + 合并 | 5分钟 | 与手动审查共用降噪 |
+
+##### 降噪效果演示
+
+**场景1：AI 指令去重（避免重复提问）**
+
+```bash
+# 用户重复发送相同问题
+用户: @智能机器人 /AI 苹果为什么是红的？
+机器人: 🤖 问题：苹果为什么是红的？\n💡 回答：苹果变红是因为...
+
+用户: @智能机器人 /AI 苹果为什么是红的？（30秒内重复）
+机器人: ⚠️ 您刚才已经问过相同的问题，请等待回答或换个问题问问看～
+```
+
+**场景2：部署通知合并（减少通知疲劳）**
+
+```bash
+# 5分钟内执行5次部署
+用户: /deploy dev
+用户: /deploy dev
+用户: /deploy dev
+用户: /deploy dev
+用户: /deploy dev
+
+# 前4次不会立即发送通知
+# 第5次触发合并摘要，收到一条汇总消息：
+📊 **部署事件汇总**（过去 5 分钟）
+
+1. 🚀 部署已触发（重复 5 次）
+
+💡 共 5 条 DEPLOY 事件
+```
+
+**场景3：GitHub Push 通知顺序保证**
+
+```bash
+# push 代码到仓库
+git push origin main
+
+# 观察飞书群消息顺序（已修复）：
+# 1. ✅ 先收到：🚀 GitHub Push 通知（立即发送，跳过合并队列）
+# 2. ⏳ 后收到：🔍 自动代码审查完成
+```
+
+##### 如何验证降噪功能
+
+**方法1：查看应用日志**
+
+```bash
+# 实时查看降噪日志
+tail -f logs/intelligent-robot.log | grep -E "去重|合并|降噪"
+
+# 示例输出：
+# Detected duplicate message, blocked: chatId=oc_***xxxx, eventType=DEPLOY
+# Message added to batch queue: chatId=oc_***xxxx, eventType=DEPLOY, queue_length=3
+# Batch summary pushed: chatId=oc_***xxxx, eventType=DEPLOY, message_count=5
+```
+
+**方法2：查看 Redis 中的数据**
+
+```bash
+# 连接 Redis
+redis-cli
+
+# 查看去重 Key（格式：notify:dedup:{chatId}:{eventType}:{hash}）
+KEYS notify:dedup:*
+
+# 查看合并队列 Key（格式：notify:batch:queue:{chatId}:{eventType}）
+KEYS notify:batch:*
+
+# 查看已推送标记 Key（格式：notify:batch:sent:{chatId}:{eventType}）
+KEYS notify:batch:sent:*
+```
+
+**方法3：功能测试**
+
+```bash
+# 测试 AI 去重（30秒内重复提问相同问题）
+@智能机器人 /AI 今天天气怎么样？
+@智能机器人 /AI 今天天气怎么样？  # 应收到去重提示
+
+# 测试部署通知合并（5分钟内执行5次部署）
+/deploy dev
+/deploy dev
+/deploy dev
+/deploy dev
+/deploy dev  # 第5次应收到合并摘要
+
+# 测试代码审查去重（5分钟内重复审查同一 PR）
+/review frontend 42
+/review frontend 42  # 相同内容，应被去重拦截
+```
+
+##### 开发者指南：如何为指令添加降噪功能
+
+**步骤1：注入 NotificationService**
+
+```java
+@Component
+public class YourCommandHandler {
+    
+    @Autowired(required = false)
+    private NotificationService notificationService;
+    
+    // 构造函数也需要添加 NotificationService 参数
+    public YourCommandHandler(..., NotificationService notificationService) {
+        this.notificationService = notificationService;
+    }
+}
+```
+
+**步骤2：发送带降噪的通知**
+
+```java
+private void executeCommand(CommandContext context) {
+    String result = doSomething();
+    
+    // 发送通知（带智能降噪）
+    sendNotificationWithDeduplication(context, result);
+    
+    return result;
+}
+
+private void sendNotificationWithDeduplication(CommandContext context, String message) {
+    String chatId = context.getChatId();
+    if (chatId == null || chatId.isEmpty()) {
+        return;
+    }
+
+    try {
+        if (notificationService != null) {
+            // 使用自定义事件类型，启用智能降噪（去重 + 合并）
+            boolean success = notificationService.sendNotification(chatId, "YOUR_EVENT_TYPE", message);
+            if (success) {
+                log.info("通知已发送（带降噪）: chatId={}", maskChatId(chatId));
+            } else {
+                log.info("通知被降噪拦截（去重或合并中）");
+            }
+        } else {
+            // NotificationService 不可用，降级处理（直接发送）
+            log.warn("NotificationService 不可用，通知未启用智能降噪");
+        }
+    } catch (Exception e) {
+        log.error("发送通知失败", e);
+    }
+}
+```
+
+**步骤3：配置降噪策略**
+
+在 `application-prod.yaml` 中添加配置：
+
+```yaml
+notification:
+  noise-reduction-enabled: true  # 启用智能降噪
+  
+  dedup:
+    window-seconds: 300  # 去重窗口：5分钟
+  
+  batch:
+    enabled: true
+    window-seconds: 300  # 合并窗口：5分钟
+    threshold: 5  # 合并阈值：达到5条立即推送
+```
+
+##### 降噪功能架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    指令执行流程                              │
+│  User Command → CommandHandler → Business Logic           │
+└───────────────────────────┬─────────────────────────────┘
+                            │ 发送通知
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                NotificationService                            │
+│  • sendNotification(chatId, eventType, content)          │
+│  • sendUrgentNotification(chatId, eventType, content)    │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│              智能降噪流程（两步）                            │
+│                                                             │
+│  第一步：消息去重（MessageDedupService）                    │
+│    • 计算消息内容 MD5 哈希                                  │
+│    • 基于 (chatId + eventType + hash) 构建 Redis Key      │
+│    • 在去重窗口时间内，相同哈希的消息只推送一次             │
+│                                                             │
+│  第二步：消息合并（MessageBatchService）                    │
+│    • 按 (chatId + eventType) 分组，使用 Redis List 存储   │
+│    • 每条消息加入队列时，检查是否达到合并阈值              │
+│    • 达到阈值立即推送合并摘要；未达阈值等待定时任务推送    │
+│    • 超过合并窗口时间，无论是否达到阈值都推送              │
+└───────────────────────────┬─────────────────────────────┘
+                            │ 通过降噪检查
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    FeishuClient                              │
+│  • sendText(chatId, content)                             │
+│  • sendCard(chatId, cardContent)                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+##### 常见问题
+
+**Q1：如何临时关闭降噪功能？**
+
+A：修改配置文件：
+
+```yaml
+notification:
+  noise-reduction-enabled: false  # 关闭智能降噪
+```
+
+或设置环境变量：
+
+```bash
+export NOTIFICATION_NOISE_REDUCTION_ENABLED=false
+```
+
+**Q2：去重窗口和合并窗口可以不同吗？**
+
+A：可以。去重窗口由 `notification.dedup.window-seconds` 控制，合并窗口由 `notification.batch.window-seconds` 控制。建议设置为相同值（如都是5分钟）。
+
+**Q3：如何调整合并阈值？**
+
+A：修改配置文件：
+
+```yaml
+notification:
+  batch:
+    threshold: 3  # 降低阈值，达到3条就推送合并摘要
+```
+
+**Q4：为什么 Push 通知需要立即发送？**
+
+A：因为 Push 通知和代码审查通知有顺序要求：Push 通知应该在代码审查通知之前到达。如果 Push 通知被合并延迟，会导致顺序颠倒。
+
+**Q5：如何查看降噪效果？**
+
+A：查看应用日志：
+
+```bash
+tail -f logs/intelligent-robot.log | grep -E "去重|合并"
+```
+
+或查看 Redis 中的数据：
+
+```bash
+redis-cli KEYS "notify:*"
+```
+
+##### 性能优化建议
+
+1. **合理设置去重窗口**：太短（如1分钟）可能导致重复通知；太长（如1小时）可能漏掉重要通知。建议5-10分钟。
+2. **合理设置合并阈值**：太低（如2条）可能导致频繁推送合并摘要；太高（如10条）可能导致通知延迟。建议5条。
+3. **监控 Redis 内存使用**：去重 Key 和合并队列都存储在 Redis 中，需要确保 Redis 有足够内存。
+4. **使用 Redis 过期策略**：去重 Key 会自动过期（基于去重窗口），合并队列也会自动过期（基于合并窗口），无需手动清理。
+
+---
+
 #### 3.1 Git 集成与代码操作
 
 支持 GitHub 和 GitLab 两大平台，通过**仓库别名映射**简化操作。

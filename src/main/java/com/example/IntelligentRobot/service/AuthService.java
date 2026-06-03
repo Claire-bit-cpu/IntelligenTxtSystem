@@ -4,6 +4,7 @@
  */
 package com.example.IntelligentRobot.service;
 
+import com.example.IntelligentRobot.dto.CommandContext;
 import com.example.IntelligentRobot.dto.PermissionLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,7 +79,7 @@ public class AuthService {
 
     /**
      * 检查用户是否为管理员
-     * @param openId 飞书用户 Open ID
+     * @param openId 飞书用户 Open ID 或 User ID
      * @return true 如果是管理员
      */
     public boolean isAdmin(String openId) {
@@ -87,7 +88,7 @@ public class AuthService {
         }
         String config = getAdminOpenIdsConfig();
         boolean result = isInCommaSeparatedList(openId, config);
-        log.debug("管理员权限检查: openId={}, result={}, source={}", maskOpenId(openId), result,
+        log.debug("管理员权限检查: id={}, result={}, source={}", maskOpenId(openId), result,
                 dynamicConfigService != null && dynamicConfigService.getConfigValue(DYNAMIC_CONFIG_KEY_ADMIN) != null ? "redis" : "static");
         return result;
     }
@@ -95,7 +96,7 @@ public class AuthService {
     /**
      * 检查用户是否为开发者或管理员
      * 管理员自动拥有开发者权限
-     * @param openId 飞书用户 Open ID
+     * @param openId 飞书用户 Open ID 或 User ID
      * @return true 如果是开发者或管理员
      */
     public boolean isDeveloper(String openId) {
@@ -108,9 +109,55 @@ public class AuthService {
         }
         String config = getDeveloperOpenIdsConfig();
         boolean result = isInCommaSeparatedList(openId, config);
-        log.debug("开发者权限检查: openId={}, result={}, source={}", maskOpenId(openId), result,
+        log.debug("开发者权限检查: id={}, result={}, source={}", maskOpenId(openId), result,
                 dynamicConfigService != null && dynamicConfigService.getConfigValue(DYNAMIC_CONFIG_KEY_DEVELOPER) != null ? "redis" : "static");
         return result;
+    }
+
+    /**
+     * 检查用户是否有权限（同时支持 open_id 和 user_id）
+     * 这个方法会从 CommandContext 中提取所有可能的 ID 进行校验
+     * @param context CommandContext 对象
+     * @param level 需要的权限级别
+     * @return true 如果有权限
+     */
+    public boolean hasPermission(CommandContext context, PermissionLevel level) {
+        if (context == null) return false;
+        
+        // 收集所有可能的用户 ID
+        java.util.Set<String> userIds = new java.util.HashSet<>();
+        
+        // 1. 从 context.getUserId() 获取（可能是 open_id 或 user_id）
+        String userId = context.getUserId();
+        if (userId != null && !userId.isEmpty() && !"default".equals(userId)) {
+            userIds.add(userId);
+        }
+        
+        // 2. 从 sender 中获取 open_id
+        if (context.getSender() != null) {
+            String openId = context.getSender().getOpenId();
+            if (openId != null && !openId.isEmpty()) {
+                userIds.add(openId);
+            }
+            
+            // 3. 从 sender 中获取 user_id
+            String senderUserId = context.getSender().getUserId();
+            if (senderUserId != null && !senderUserId.isEmpty()) {
+                userIds.add(senderUserId);
+            }
+        }
+        
+        // 使用任意一个匹配的 ID 进行权限检查
+        for (String id : userIds) {
+            if (hasPermission(id, level)) {
+                log.debug("权限检查通过: id={}, level={}", maskOpenId(id), level);
+                return true;
+            }
+        }
+        
+        log.warn("权限检查失败: 用户无任何权限组匹配, userIds={}, required={}", 
+                userIds.stream().map(this::maskOpenId).toList(), level);
+        return false;
     }
 
     /**

@@ -5,12 +5,14 @@ import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.config.GitHubConfig;
 import com.example.IntelligentRobot.dto.CommandContext;
 import com.example.IntelligentRobot.service.CodeReviewService;
+import com.example.IntelligentRobot.service.NotificationService;
 import com.example.IntelligentRobot.service.TaskMonitorService;
 import com.example.IntelligentRobot.task.AsyncTaskStatus;
 import com.example.IntelligentRobot.task.TaskContext;
 import com.example.IntelligentRobot.task.TaskStatusService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -35,6 +37,7 @@ public class CodeReviewCommandHandler {
     private final GitHubConfig gitHubConfig;
     private final TaskStatusService taskStatusService;
     private final TaskMonitorService taskMonitorService;
+    private final NotificationService notificationService;
 
     // /review frontend 42 或 /review frontend commit abc123
     private static final Pattern REVIEW_ALIAS_PATTERN =
@@ -47,16 +50,19 @@ public class CodeReviewCommandHandler {
     // 当前任务ID
     private String currentTaskId = null;
 
+    @Autowired(required = false)
     public CodeReviewCommandHandler(CodeReviewService codeReviewService,
                             GitHubClient gitHubClient,
                             GitHubConfig gitHubConfig,
                             TaskStatusService taskStatusService,
-                            TaskMonitorService taskMonitorService) {
+                            TaskMonitorService taskMonitorService,
+                            NotificationService notificationService) {
         this.codeReviewService = codeReviewService;
         this.gitHubClient = gitHubClient;
         this.gitHubConfig = gitHubConfig;
         this.taskStatusService = taskStatusService;
         this.taskMonitorService = taskMonitorService;
+        this.notificationService = notificationService;
     }
 
     @Command(
@@ -109,6 +115,10 @@ public class CodeReviewCommandHandler {
             // 更新任务状态：审查完成
             TaskContext.updateProgress(100, "代码审查完成");
             response.append(result);
+            
+            // 发送降噪通知
+            sendReviewNotification(context, result, args);
+            
             return response.toString();
         }
 
@@ -121,6 +131,10 @@ public class CodeReviewCommandHandler {
             // 更新任务状态：审查完成
             TaskContext.updateProgress(100, "代码审查完成");
             response.append(result);
+            
+            // 发送降噪通知
+            sendReviewNotification(context, result, args);
+            
             return response.toString();
         }
 
@@ -356,19 +370,48 @@ public class CodeReviewCommandHandler {
      */
     private String buildHelpText() {
         return """
-                ❌ 用法：/review <仓库别名> <PR号或commit>
+                    ❌ 用法：/review <仓库别名> <PR号或commit>
 
-                📋 示例：
-                /review frontend 42               - 审查 frontend 仓库的 PR #42
-                /review frontend commit abc1234   - 审查 frontend 仓库的提交 abc1234
-                /review frontend abc1234          - 自动识别为 commit hash，审查该提交
+                    📋 示例：
+                    /review frontend 42               - 审查 frontend 仓库的 PR #42
+                    /review frontend commit abc1234   - 审查 frontend 仓库的提交 abc1234
+                    /review frontend abc1234          - 自动识别为 commit hash，审查该提交
 
-                🔄 兼容旧命令：
-                /cr owner/repo 123               - 审查指定仓库的 PR
+                    🔄 兼容旧命令：
+                    /cr owner/repo 123               - 审查指定仓库的 PR
 
-                💡 功能说明：
-                使用 AI 自动分析代码，给出审查建议
-                包含：评分、问题列表、修改建议
-                """;
+                    💡 功能说明：
+                    使用 AI 自动分析代码，给出审查建议
+                    包含：评分、问题列表、修改建议
+                    """;
+    }
+
+    /**
+     * 发送代码审查通知（带智能降噪）
+     */
+    private void sendReviewNotification(CommandContext context, String message, String args) {
+        String chatId = context.getChatId();
+        if (chatId == null || chatId.isEmpty()) {
+            return;
+        }
+
+        try {
+            if (notificationService != null) {
+                // 使用 CODE_REVIEW 事件类型，启用智能降噪（去重 + 合并）
+                boolean success = notificationService.sendNotification(chatId, "CODE_REVIEW", 
+                        "🔍 代码审查完成\n\n" + message);
+                if (success) {
+                    log.info("代码审查通知已发送（带降噪）: args={}, chatId={}", args, 
+                            chatId.substring(0, Math.min(8, chatId.length())) + "***");
+                } else {
+                    log.info("代码审查通知被降噪拦截（去重或合并中）: args={}", args);
+                }
+            } else {
+                // NotificationService 不可用，降级处理
+                log.warn("NotificationService 不可用，代码审查通知未启用智能降噪");
+            }
+        } catch (Exception e) {
+            log.error("发送代码审查通知失败", e);
+        }
     }
 }

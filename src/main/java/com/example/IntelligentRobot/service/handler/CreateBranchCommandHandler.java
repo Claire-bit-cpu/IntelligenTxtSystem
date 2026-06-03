@@ -5,6 +5,7 @@ import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.config.GitHubConfig;
 import com.example.IntelligentRobot.dto.CommandContext;
 import com.example.IntelligentRobot.service.ConfirmService;
+import com.example.IntelligentRobot.service.NotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,15 +29,18 @@ public class CreateBranchCommandHandler {
     private final GitHubConfig gitHubConfig;
     private final StringRedisTemplate redisTemplate;
     private final ConfirmService confirmService;
+    private final NotificationService notificationService;
 
     @Autowired(required = false)
     public CreateBranchCommandHandler(GitHubClient gitHubClient, GitHubConfig gitHubConfig,
                                      StringRedisTemplate redisTemplate,
-                                     ConfirmService confirmService) {
+                                     ConfirmService confirmService,
+                                     NotificationService notificationService) {
         this.gitHubClient = gitHubClient;
         this.gitHubConfig = gitHubConfig;
         this.redisTemplate = redisTemplate;
         this.confirmService = confirmService;
+        this.notificationService = notificationService;
     }
 
     @Command(
@@ -173,7 +177,12 @@ public class CreateBranchCommandHandler {
                 log.warn("设置分支创建标记失败", e);
             }
 
-            return "✅ 分支创建成功！\n📌 仓库：" + repoAlias + "\n🌿 新分支：`" + branchName + "`\n📎 基于：" + ref + " (" + sourceSha.substring(0, 8) + ")";
+            String successMsg = "✅ 分支创建成功！\n📌 仓库：" + repoAlias + "\n🌿 新分支：`" + branchName + "`\n📎 基于：" + ref + " (" + sourceSha.substring(0, 8) + ")";
+            
+            // 发送降噪通知
+            sendBranchNotification(context, successMsg, repoFullName, branchName);
+            
+            return successMsg;
 
         } catch (Exception e) {
             log.error("创建分支失败", e);
@@ -201,5 +210,33 @@ public class CreateBranchCommandHandler {
             return (String) repoInfo.get("default_branch");
         }
         return null;
+    }
+
+    /**
+     * 发送分支创建通知（带智能降噪）
+     */
+    private void sendBranchNotification(CommandContext context, String message, String repoFullName, String branchName) {
+        String chatId = context.getChatId();
+        if (chatId == null || chatId.isEmpty()) {
+            return;
+        }
+
+        try {
+            if (notificationService != null) {
+                // 使用 BRANCH_CREATE 事件类型，启用智能降噪（去重 + 合并）
+                boolean success = notificationService.sendNotification(chatId, "BRANCH_CREATE", message);
+                if (success) {
+                    log.info("分支创建通知已发送（带降噪）: repo={}, branch={}, chatId={}", 
+                            repoFullName, branchName, maskOpenId(chatId));
+                } else {
+                    log.info("分支创建通知被降噪拦截（去重或合并中）: repo={}", repoFullName);
+                }
+            } else {
+                // NotificationService 不可用，降级处理
+                log.warn("NotificationService 不可用，分支创建通知未启用智能降噪");
+            }
+        } catch (Exception e) {
+            log.error("发送分支创建通知失败", e);
+        }
     }
 }

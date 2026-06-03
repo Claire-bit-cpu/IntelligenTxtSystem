@@ -42,6 +42,11 @@ public class MessageDispatcher {
     private static final Pattern CONFIRM_PATTERN = Pattern.compile("--confirm\\s+(\\w+)");
 
     /**
+     * 匹配飞书 Markdown 链接格式 [text](url)
+     */
+    private static final Pattern MARKDOWN_LINK_PATTERN = Pattern.compile("\\[([^\\]]+)\\]\\(([^)]+)\\)");
+
+    /**
      * 无意义字符检测：连续重复字符或随机字符串（无有意义子串）
      */
     private static final Pattern NOISE_PATTERN = Pattern.compile("^[a-z]{5,}$");
@@ -226,9 +231,15 @@ public class MessageDispatcher {
     private String executeCommand(String commandName, String args,
                                  FeishuSender sender, String chatId, String rawMessage,
                                  java.util.List<MessageContent.Mention> mentions, String taskId) {
+        // 清理飞书 Markdown 链接格式
+        String cleanedArgs = cleanMarkdownLinks(args);
+        if (!cleanedArgs.equals(args)) {
+            log.info("清理 Markdown 链接: 原始='{}', 清理后='{}'", args, cleanedArgs);
+        }
+        
         CommandContext context = new CommandContext();
         context.setCommandName(commandName);
-        context.setArgs(args);
+        context.setArgs(cleanedArgs);
         context.setSender(sender);
         context.setChatId(chatId);
         context.setRawMessage(rawMessage);
@@ -296,5 +307,34 @@ public class MessageDispatcher {
             return java.util.Optional.of(m.group(1));
         }
         return java.util.Optional.empty();
+    }
+
+    /**
+     * 清理飞书 Markdown 链接格式
+     * 将 [text](url) 转换为纯文本（优先使用 text，如果 text 是 URL 则使用 URL 的主机名）
+     * @param args 原始参数
+     * @return 清理后的参数
+     */
+    private String cleanMarkdownLinks(String args) {
+        if (args == null || args.isEmpty()) {
+            return args;
+        }
+        
+        // 替换所有 Markdown 链接为链接文本
+        // 例如：[192.168.64.1](http://192.168.64.1/) → 192.168.64.1
+        // 例如：[百度](https://www.baidu.com) → 百度
+        Matcher matcher = MARKDOWN_LINK_PATTERN.matcher(args);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String linkText = matcher.group(1);  // Markdown 链接文本
+            String linkUrl = matcher.group(2);   // Markdown 链接 URL
+            
+            // 如果链接文本看起来像 IP 地址或主机名，使用它
+            // 否则使用链接文本
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(linkText));
+        }
+        matcher.appendTail(sb);
+        
+        return sb.toString().trim();
     }
 }

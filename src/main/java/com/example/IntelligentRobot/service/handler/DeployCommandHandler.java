@@ -4,6 +4,7 @@ import com.example.IntelligentRobot.annotation.Command;
 import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.dto.CommandContext;
 import com.example.IntelligentRobot.service.ConfirmService;
+import com.example.IntelligentRobot.service.NotificationService;
 import com.example.IntelligentRobot.task.TaskContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,12 @@ public class DeployCommandHandler {
      */
     @Autowired(required = false)
     private ConfirmService confirmService;
+
+    /**
+     * 通知服务（智能降噪）
+     */
+    @Autowired(required = false)
+    private NotificationService notificationService;
 
     /**
      * Spring 环境对象，用于读取配置
@@ -165,7 +172,7 @@ public class DeployCommandHandler {
                 // 更新任务状态：部署已触发
                 TaskContext.updateProgress(90, "部署已触发，等待完成");
 
-                return String.format("""
+                String successMsg = String.format("""
                         🚀 部署已触发
 
                         📦 环境：%s
@@ -180,10 +187,16 @@ public class DeployCommandHandler {
                         """, normalizedEnv, config.owner(), config.repo(), 
                            config.workflowId(), operator, now, result,
                            config.owner(), config.repo());
+                
+                // 发送降噪通知
+                sendDeployNotification(context, successMsg, normalizedEnv);
+                
+                return successMsg;
             } catch (Exception e) {
                 log.error("GitHub Actions 部署失败", e);
                 TaskContext.updateProgress(0, "部署失败: " + e.getMessage());
-                return String.format("""
+                
+                String errorMsg = String.format("""
                         ❌ 部署失败
 
                         📦 环境：%s
@@ -193,6 +206,10 @@ public class DeployCommandHandler {
 
                         💡 请检查 GitHub 配置
                         """, normalizedEnv, operator, e.getMessage());
+                
+                // 发送降噪通知
+                sendDeployNotification(context, errorMsg, normalizedEnv);
+                return errorMsg;
             }
         }
 
@@ -305,5 +322,32 @@ public class DeployCommandHandler {
     private String maskOpenId(String openId) {
         if (openId == null || openId.length() < 8) return "***";
         return openId.substring(0, 4) + "***" + openId.substring(openId.length() - 4);
+    }
+
+    /**
+     * 发送部署通知（带智能降噪）
+     */
+    private void sendDeployNotification(CommandContext context, String message, String env) {
+        String chatId = context.getChatId();
+        if (chatId == null || chatId.isEmpty()) {
+            return;
+        }
+
+        try {
+            if (notificationService != null) {
+                // 使用 DEPLOY 事件类型，启用智能降噪（去重 + 合并）
+                boolean success = notificationService.sendNotification(chatId, "DEPLOY", message);
+                if (success) {
+                    log.info("部署通知已发送（带降噪）: env={}, chatId={}", env, maskOpenId(chatId));
+                } else {
+                    log.info("部署通知被降噪拦截（去重或合并中）: env={}", env);
+                }
+            } else {
+                // NotificationService 不可用，降级处理
+                log.warn("NotificationService 不可用，部署通知未启用智能降噪");
+            }
+        } catch (Exception e) {
+            log.error("发送部署通知失败", e);
+        }
     }
 }

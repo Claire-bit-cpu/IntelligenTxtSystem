@@ -96,15 +96,16 @@ public class CommandRegistry {
             requiredLevel = PermissionLevel.DEVELOPER;
         }
         if (requiredLevel != PermissionLevel.NONE) {
-            String userOpenId = context.getUserId();
-            log.info("指令 {} 需要鉴权（级别: {}），检查用户权限: openId={}", commandName, requiredLevel, maskOpenId(userOpenId));
+            // 使用新的 hasPermission(context, level) 方法，同时支持 open_id 和 user_id
+            log.info("指令 {} 需要鉴权（级别: {}），检查用户权限", commandName, requiredLevel);
 
-            String permissionDeniedMsg = authService.checkPermissionWithMessage(userOpenId, requiredLevel);
-            if (permissionDeniedMsg != null) {
-                log.warn("权限拒绝: 用户 {} 无权执行指令 {}（需要 {} 权限）", maskOpenId(userOpenId), commandName, requiredLevel);
-                throw new SecurityException(permissionDeniedMsg);
+            if (!authService.hasPermission(context, requiredLevel)) {
+                String permissionDeniedMsg = authService.checkPermissionWithMessage(context.getUserId(), requiredLevel);
+                log.warn("权限拒绝: 用户无权执行指令 {}（需要 {} 权限）, userIds={}", 
+                        commandName, requiredLevel, getContextUserIds(context));
+                throw new SecurityException(permissionDeniedMsg != null ? permissionDeniedMsg : "权限不足");
             }
-            log.debug("鉴权通过: openId={}, command={}, level={}", maskOpenId(userOpenId), commandName, requiredLevel);
+            log.debug("鉴权通过: command={}, level={}, userIds={}", commandName, requiredLevel, getContextUserIds(context));
         }
 
         // 获取用户ID
@@ -265,6 +266,33 @@ public class CommandRegistry {
             return "***";
         }
         return openId.substring(0, 4) + "***" + openId.substring(openId.length() - 4);
+    }
+
+    /**
+     * 从 CommandContext 中提取所有用户 ID（用于日志）
+     */
+    private java.util.Set<String> getContextUserIds(CommandContext context) {
+        java.util.Set<String> userIds = new java.util.HashSet<>();
+        if (context == null) return userIds;
+        
+        String userId = context.getUserId();
+        if (userId != null && !userId.isEmpty() && !"default".equals(userId)) {
+            userIds.add(maskOpenId(userId));
+        }
+        
+        if (context.getSender() != null) {
+            String openId = context.getSender().getOpenId();
+            if (openId != null && !openId.isEmpty()) {
+                userIds.add(maskOpenId(openId));
+            }
+            
+            String senderUserId = context.getSender().getUserId();
+            if (senderUserId != null && !senderUserId.isEmpty()) {
+                userIds.add(maskOpenId(senderUserId));
+            }
+        }
+        
+        return userIds;
     }
 
     /**

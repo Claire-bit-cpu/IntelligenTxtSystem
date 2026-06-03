@@ -120,8 +120,8 @@ public class GitHubWebhookService {
                 message += "🔗 查看差异：" + compareUrl + "\n";
             }
 
-            // 发送飞书群通知
-            sendNotification(message);
+            // 发送飞书群通知（立即发送，跳过合并队列，确保 Push 通知在代码审查通知之前到达）
+            sendImmediateNotification(message);
 
             // 自动触发代码审查（异步）
             if (autoReviewEnabled && codeReviewService != null && gitHubClient != null) {
@@ -294,14 +294,14 @@ public class GitHubWebhookService {
             // 格式化结果
             String formattedResult = codeReviewService.formatReviewResult(result, target, commitUrl);
 
-            // 发送通知
-            sendNotification("🔍 自动代码审查完成\n\n" + formattedResult);
+            // 发送通知（使用立即发送，跳过合并队列，确保代码审查结果及时送达）
+            sendImmediateNotification("🔍 自动代码审查完成\n\n" + formattedResult);
 
             log.info("自动审查 Commit 完成: {}/{} {}", owner, repo, sha);
 
         } catch (Exception e) {
             log.error("自动审查 Commit 失败: {}/{} {}", owner, repo, sha, e);
-            sendNotification("⚠️ 自动代码审查失败\n\n仓库：" + fullName + "\nCommit：" + sha + "\n错误：" + e.getMessage());
+            sendImmediateNotification("⚠️ 自动代码审查失败\n\n仓库：" + fullName + "\nCommit：" + sha + "\n错误：" + e.getMessage());
         }
     }
 
@@ -324,14 +324,14 @@ public class GitHubWebhookService {
             // 格式化结果
             String formattedResult = codeReviewService.formatReviewResult(result, target, prUrl);
 
-            // 发送通知
-            sendNotification("🔍 自动代码审查完成\n\n" + formattedResult);
+            // 发送通知（使用立即发送，跳过合并队列，确保代码审查结果及时送达）
+            sendImmediateNotification("🔍 自动代码审查完成\n\n" + formattedResult);
 
             log.info("自动审查 PR 完成: {}/{} #{}", owner, repo, prNumber);
 
         } catch (Exception e) {
             log.error("自动审查 PR 失败: {}/{} #{}", owner, repo, prNumber, e);
-            sendNotification("⚠️ 自动代码审查失败\n\n仓库：" + fullName + "\nPR：" + prNumber + "\n错误：" + e.getMessage());
+            sendImmediateNotification("⚠️ 自动代码审查失败\n\n仓库：" + fullName + "\nPR：" + prNumber + "\n错误：" + e.getMessage());
         }
     }
 
@@ -385,6 +385,44 @@ public class GitHubWebhookService {
                     }
                 } catch (Exception e) {
                     log.error("发送通知到群聊失败: {}", maskChatId(chatId), e);
+                }
+            }
+        }
+    }
+
+    /**
+     * 立即发送通知（跳过合并队列，确保消息顺序）
+     * 用于 Push 通知等需要保证顺序的场景
+     */
+    private void sendImmediateNotification(String message) {
+        if (defaultChatIds == null || defaultChatIds.isEmpty()) {
+            log.warn("未配置通知群聊 ID，跳过发送通知");
+            return;
+        }
+
+        // 判断事件类型
+        String eventType = determineEventType(message);
+
+        List<String> chatIds = Arrays.asList(defaultChatIds.split(","));
+        for (String chatId : chatIds) {
+            chatId = chatId.trim();
+            if (!chatId.isEmpty()) {
+                try {
+                    // 使用 sendUrgentNotification 跳过合并队列，确保立即发送
+                    if (notificationService != null) {
+                        boolean success = notificationService.sendUrgentNotification(chatId, eventType, message);
+                        if (success) {
+                            log.info("已立即发送通知到群聊（跳过合并）: {}", maskChatId(chatId));
+                        } else {
+                            log.warn("立即发送通知失败（可能被去重拦截）: {}", maskChatId(chatId));
+                        }
+                    } else {
+                        // 降级：直接发送
+                        feishuMessageService.sendTextToGroup(chatId, message);
+                        log.info("已发送通知到群聊（未启用智能降噪）: {}", maskChatId(chatId));
+                    }
+                } catch (Exception e) {
+                    log.error("立即发送通知到群聊失败: {}", maskChatId(chatId), e);
                 }
             }
         }

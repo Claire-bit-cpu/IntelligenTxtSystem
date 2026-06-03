@@ -93,9 +93,9 @@ public class SearchSyncScheduler {
     }
 
     /**
-     * 定时全量同步（默认每2小时）
+     * 定时全量同步（默认每5小时）
      */
-    @Scheduled(fixedDelayString = "${search.sync-interval-ms:7200000}")
+    @Scheduled(fixedDelayString = "${search.sync-interval-ms:18000000}")
     public void scheduledSync() {
         fullSync();
     }

@@ -480,21 +480,20 @@ public class EventAsyncProcessor {
                 • `/github list <别名或owner/repo> [工作流]` - 列出最近运行
                 • `/github cancel <别名或owner/repo> <run-id>` - 取消运行
                 
-                **GitLab CI：**
-                • `/gitlab pipeline <项目> <分支>` - 触发流水线
-                • `/gitlab status <项目> <pipeline-id>` - 查询状态
-                • `/gitlab list <项目>` - 列出最近流水线
-                • `/gitlab cancel <项目> <pipeline-id>` - 取消流水线
+                **部署功能：**
+                • `/deploy <环境>` - 触发部署（需二次确认）
+                • 支持环境：dev/test/staging/prod
                 
                 **示例：**
                 • `/github workflow frontend ci.yml main`
                 • `/github workflow Claire-bit-cpu/Test deploy-dev.yml develop`
                 • `/github list frontend`
-                • `/gitlab pipeline my-project feature-branch`
-                • `/gitlab status my-project 123`
+                • `/deploy test` - 部署到测试环境
+                • `/deploy prod` - 部署到生产环境
                 
-                💡 需要配置 GitHub/GitLab Token
+                💡 需要配置 GitHub Token
                 💡 支持使用仓库别名（需在配置中定义）
+                💡 部署需要配置 github.deploy 环境变量
                 """;
             
             // ==================== DevOps 工具 ====================

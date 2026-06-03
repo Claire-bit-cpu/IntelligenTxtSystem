@@ -1191,8 +1191,8 @@ public class FeishuClient {
             elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", "**🔧 DevOps 工具**")));
             elements.add(buildButtonGroup(
                     Map.of("action", "help_cicd"), "⚙️ CI/CD", "default",
-                    Map.of("action", "help_monitor"), "📊 监控", "default",
-                    Map.of("action", "help_jira"), "📋 JIRA", "default"
+                    Map.of("action", "help_deploy"), "🚀 部署", "primary",
+                    Map.of("action", "help_monitor"), "📊 监控", "default"
             ));
 
             elements.add(Map.of("tag", "hr"));
