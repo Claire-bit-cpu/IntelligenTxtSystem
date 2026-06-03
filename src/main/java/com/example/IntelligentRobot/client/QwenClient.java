@@ -66,16 +66,18 @@ public class QwenClient {
     }
 
     /**
-     * 使用通义千问进行翻译（中英互译）
+     * 使用通义千问进行翻译（支持多语言）
      *
-     * @param text 待翻译文本
+     * @param text        待翻译文本
+     * @param sourceLang  源语言（中文、英语、日语、韩语）
+     * @param targetLang  目标语言（中文、英语、日语、韩语）
      * @return 翻译结果
      */
-    public String translate(String text) {
-        logger.info("QwenClient.translate() 被调用: " + text);
+    public String translate(String text, String sourceLang, String targetLang) {
+        logger.info("QwenClient.translate() 被调用: {} → {}, text: {}", sourceLang, targetLang, text);
         
         // 构建提示词
-        String prompt = buildTranslatePrompt(text);
+        String prompt = buildTranslatePrompt(text, sourceLang, targetLang);
         logger.info("翻译 Prompt: " + prompt);
 
         try {
@@ -101,24 +103,36 @@ public class QwenClient {
     }
 
     /**
-     * 构建翻译提示词
+     * 构建翻译提示词（多语言版本）
      */
-    private String buildTranslatePrompt(String text) {
-        boolean isEnglish = text.matches("^[a-zA-Z].*");
-
-        if (isEnglish) {
-            return String.format("""
-                    请将以下英文翻译成中文，只返回翻译结果，不要任何解释：
-                    
-                    %s
-                    """, text);
-        } else {
-            return String.format("""
-                    请将以下中文翻译成英文，只返回翻译结果，不要任何解释：
-                    
-                    %s
-                    """, text);
+    private String buildTranslatePrompt(String text, String sourceLang, String targetLang) {
+        // 如果源语言和目标语言相同，无需翻译
+        if (sourceLang.equals(targetLang)) {
+            return text;
         }
+
+        // 构建翻译指令
+        String sourceLangEng = convertToEnglish(sourceLang);
+        String targetLangEng = convertToEnglish(targetLang);
+        
+        return String.format("""
+                请将以下%s文本翻译成%s，只返回翻译结果，不要任何解释：
+                
+                %s
+                """, sourceLang, targetLang, text);
+    }
+
+    /**
+     * 将中文语言名转换为英文（用于提示词）
+     */
+    private String convertToEnglish(String lang) {
+        return switch (lang) {
+            case "中文" -> "中文";
+            case "英语" -> "英文";
+            case "日语" -> "日文";
+            case "韩语" -> "韩文";
+            default -> lang;
+        };
     }
 
     /**

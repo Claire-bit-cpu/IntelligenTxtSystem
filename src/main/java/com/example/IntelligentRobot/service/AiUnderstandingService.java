@@ -197,7 +197,7 @@ public class AiUnderstandingService {
                 【可用指令列表】
                 /help - 查看帮助
                 /weather - 查询天气（支持上下文感知）
-                /translate - 中英互译
+                /translate - 多语言翻译（支持中文、英语、日语、韩语互译）
                 /schedule - 创建日程（用法：/schedule 2026-05-30 15:00 会议名）
                 /updateschedule - 修改日程（用法：/updateschedule 17:00 或 /updateschedule 2026-05-30 17:00）
                 /ai - AI 智能问答
