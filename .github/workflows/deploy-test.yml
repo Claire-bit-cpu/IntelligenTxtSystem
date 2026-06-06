@@ -230,8 +230,13 @@ jobs:
 
       - name: 📢 发送飞书通知（成功）
         if: success() && env.FEISHU_WEBHOOK != ''
+        env:
+          TARGET: ${{ env.TARGET }}
+          BRANCH: ${{ github.event.inputs.ref || 'test' }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          TARGET="${{ env.TARGET }}"
           curl -X POST "$FEISHU_WEBHOOK" \
             -H "Content-Type: application/json" \
             -d '{
@@ -243,8 +248,8 @@ jobs:
                   "template": "green"
                 },
                 "elements": [
-                  {"tag": "div", "text": {"tag": "lark_md", "content": "**环境**：test\n**部署目标**：'"$TARGET"'\n**仓库**：${{ github.repository }}\n**分支**：${{ github.event.inputs.ref || \"test\" }}\n**操作者**：${{ github.actor }}\n**时间**：'"$(date -u +'%Y-%m-%d %H:%M:%S UTC')"'\n[查看详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"}},
-                  {"tag": "action", "actions": [{"tag": "button", "text": {"tag": "plain_text", "content": "查看 GitHub Actions"}, "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}", "type": "primary"}]}
+                  {"tag": "div", "text": {"tag": "lark_md", "content": "**环境**：test\n**部署目标**：'"$TARGET"'\n**仓库**：'"$REPOSITORY"'\n**分支**：'"$BRANCH"'\n**操作者**：'"$ACTOR"'\n**时间**：'"$(date -u +'%Y-%m-%d %H:%M:%S UTC')"'\n[查看详情](https://github.com/'"$REPOSITORY"'/actions/runs/'"$RUN_ID"')"}},
+                  {"tag": "action", "actions": [{"tag": "button", "text": {"tag": "plain_text", "content": "查看 GitHub Actions"}, "url": "https://github.com/'"$REPOSITORY"'/actions/runs/'"$RUN_ID"'", "type": "primary"}]}
                 ]
               }
             }'
@@ -252,8 +257,13 @@ jobs:
 
       - name: 📢 发送飞书通知（失败）
         if: failure() && env.FEISHU_WEBHOOK != ''
+        env:
+          TARGET: ${{ env.TARGET }}
+          BRANCH: ${{ github.event.inputs.ref || 'test' }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          TARGET="${{ env.TARGET }}"
           curl -X POST "$FEISHU_WEBHOOK" \
             -H "Content-Type: application/json" \
             -d '{
@@ -265,8 +275,8 @@ jobs:
                   "template": "red"
                 },
                 "elements": [
-                  {"tag": "div", "text": {"tag": "lark_md", "content": "**环境**：test\n**部署目标**：'"$TARGET"'\n**仓库**：${{ github.repository }}\n**分支**：${{ github.event.inputs.ref || \"test\" }}\n**操作者**：${{ github.actor }}\n**时间**：'"$(date -u +'%Y-%m-%d %H:%M:%S UTC')"'\n[查看详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"}},
-                  {"tag": "action", "actions": [{"tag": "button", "text": {"tag": "plain_text", "content": "查看 GitHub Actions"}, "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}", "type": "danger"}]}
+                  {"tag": "div", "text": {"tag": "lark_md", "content": "**环境**：test\n**部署目标**：'"$TARGET"'\n**仓库**：'"$REPOSITORY"'\n**分支**：'"$BRANCH"'\n**操作者**：'"$ACTOR"'\n**时间**：'"$(date -u +'%Y-%m-%d %H:%M:%S UTC')"'\n[查看详情](https://github.com/'"$REPOSITORY"'/actions/runs/'"$RUN_ID"')"}},
+                  {"tag": "action", "actions": [{"tag": "button", "text": {"tag": "plain_text", "content": "查看 GitHub Actions"}, "url": "https://github.com/'"$REPOSITORY"'/actions/runs/'"$RUN_ID"'", "type": "danger"}]}
                 ]
               }
             }'
