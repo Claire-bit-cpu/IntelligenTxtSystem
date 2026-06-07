@@ -1,10 +1,12 @@
 package com.example.IntelligentRobot.service.handler;
 
 import com.example.IntelligentRobot.annotation.Command;
+import com.example.IntelligentRobot.client.FeishuClient;
 import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.dto.CommandContext;
 import com.example.IntelligentRobot.service.ConfirmService;
 import com.example.IntelligentRobot.service.NotificationService;
+import com.example.IntelligentRobot.task.AsyncTaskStatus;
 import com.example.IntelligentRobot.task.TaskContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +46,12 @@ public class DeployCommandHandler {
      */
     @Autowired(required = false)
     private NotificationService notificationService;
+
+    /**
+     * 飞书客户端（用于发送任务监控消息）
+     */
+    @Autowired(required = false)
+    private FeishuClient feishuClient;
 
     /**
      * Spring 环境对象，用于读取配置
@@ -113,11 +121,23 @@ public class DeployCommandHandler {
         String operator = context.getSender() != null ? context.getSender().getOpenId() : "系统";
         String now = LocalDateTime.now(ZONE).format(FORMATTER);
 
+        // 设置任务类型为部署（用于任务监控面板分类显示）
+        String taskId = TaskContext.getTaskId();
+        if (taskId != null) {
+            try {
+                AsyncTaskStatus.updateEventType(taskId, "deploy");
+                log.info("部署任务事件类型已设置: taskId={}, eventType=deploy", taskId);
+            } catch (Exception e) {
+                log.warn("设置部署任务事件类型失败: taskId={}, error={}", taskId, e.getMessage());
+            }
+        }
+
         // 如果已确认，直接执行部署（从 filledParams 中获取 target）
         if (context.isConfirmed()) {
             String target = (String) context.getFilledParam("deploy_target");
             if (target == null) {
-                target = "default";
+                // 从配置读取默认目标
+                target = environment.getProperty("github.default-target", "default");
             }
             // 从 args 中获取环境（确认时 args 可能是 "dev|aliyun" 格式）
             String args = context.getArgs() != null ? context.getArgs().trim() : "";
@@ -132,7 +152,8 @@ public class DeployCommandHandler {
 
         // 解析环境和 target 参数
         String env;
-        String target = "default";
+        // 从配置读取默认目标，如果配置不存在则使用 "default"
+        String target = environment.getProperty("github.default-target", "default");
         
         if (args.contains("--target")) {
             String[] parts = args.split("--target");
@@ -202,19 +223,37 @@ public class DeployCommandHandler {
     private String executeDeploy(CommandContext context, String env, String target, String operator, String now) {
         String normalizedEnv = env.toLowerCase();
 
+        // 发送部署任务开始消息
+        String taskId = TaskContext.getTaskId();
+        String chatId = context.getChatId();
+        if (taskId != null && feishuClient != null && chatId != null) {
+            try {
+                String startMsg = buildDeployStartText(taskId, normalizedEnv, target);
+                feishuClient.sendText(chatId, startMsg);
+                log.info("部署任务开始消息已发送: taskId={}, chatId={}", taskId, chatId);
+            } catch (Exception e) {
+                log.warn("发送部署任务开始消息失败: taskId={}, error={}", taskId, e.getMessage());
+            }
+
+            // 标记此为部署任务，避免发送慢任务完成通知
+            try {
+                AsyncTaskStatus.setTaskType(taskId, "DEPLOY");
+                log.info("已标记任务为部署任务: taskId={}", taskId);
+            } catch (Exception e) {
+                log.warn("标记部署任务类型失败: taskId={}, error={}", taskId, e.getMessage());
+            }
+        }
+
         // 更新任务状态：验证环境配置
-        TaskContext.updateProgress(30, "验证部署环境配置");
+        TaskContext.updateProgress(20, "验证部署环境配置");
 
         // 如果配置了 GitHub，实际触发部署
         if (gitHubClient != null && gitHubClient.isConfigured()) {
             try {
-                // 更新任务状态：获取部署配置
-                TaskContext.updateProgress(50, "获取部署配置");
+                // 关键节点1：30% - 开始触发部署
+                TaskContext.updateProgress(30, "开始触发部署");
 
                 DeployConfig config = getGitHubDeployConfig(normalizedEnv);
-
-                // 更新任务状态：触发 GitHub Actions 工作流
-                TaskContext.updateProgress(70, "触发 GitHub Actions 工作流");
 
                 // 生成唯一的部署 ID
                 String deployId = generateDeployId(normalizedEnv, operator);
@@ -237,6 +276,11 @@ public class DeployCommandHandler {
                     String redisKey = "deploy:callback:token:" + deployId;
                     stringRedisTemplate.opsForValue().set(redisKey, callbackToken, 24, TimeUnit.HOURS);
                     log.info("回调 token 已存储到 Redis: deployId={}", deployId);
+
+                    // 同时保存 deployId -> taskId 映射，供回调时更新卡片使用
+                    String taskIdKey = "deploy:task:id:" + deployId;
+                    stringRedisTemplate.opsForValue().set(taskIdKey, taskId, 24, TimeUnit.HOURS);
+                    log.info("部署任务ID 已存储到 Redis: deployId={}, taskId={}", deployId, taskId);
                 } else {
                     log.warn("StringRedisTemplate 不可用，无法存储回调 token");
                 }
@@ -358,6 +402,24 @@ public class DeployCommandHandler {
                 💡 当前为模拟模式。
                 如需接入真实部署，请配置 GitHub Actions 集成。
                 """, normalizedEnv, envLabel, targetInfo, operator, now);
+    }
+
+    /**
+     * 构建部署任务开始文本消息
+     */
+    private String buildDeployStartText(String taskId, String env, String target) {
+        String taskIdShort = taskId.length() > 8 ? taskId.substring(0, 8) + "..." : taskId;
+        String timestamp = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return String.format("""
+                🚀 部署任务已开始
+
+                🆔 任务ID: %s
+                📦 环境: %s
+                📡 目标: %s
+                📝 状态: 初始化中...
+                🕐 开始时间: %s
+                """, taskIdShort, env, target, timestamp);
     }
 
     /**

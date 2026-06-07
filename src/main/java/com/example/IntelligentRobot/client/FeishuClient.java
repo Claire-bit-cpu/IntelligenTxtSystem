@@ -198,11 +198,11 @@ public class FeishuClient {
      * 用于在飞书侧原地更新任务进度，而不是发送新消息
      *
      * @param messageId  要更新的消息ID（调用 sendText/sendCard 的返回值）
+     * @param msgType    消息类型（"text" 或 "interactive"）
      * @param contentJson 新的消息内容（JSON 字符串，text类型或卡片）
-     * @param msgType    消息类型："text" 或 "interactive"
      * @return true if success, false if edit limit reached or other failure
      */
-    public boolean updateMessage(String messageId, String contentJson, String msgType) {
+    public boolean updateMessage(String messageId, String msgType, String contentJson) {
         if (messageId == null || messageId.isEmpty()) {
             log.warn("updateMessage 失败: messageId 为空");
             return false;
@@ -215,26 +215,45 @@ public class FeishuClient {
         headers.setBearerAuth(tenantAccessToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        Map<String, Object> body = Map.of(
-                "content", contentJson,
-                "msg_type", msgType
-        );
-
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+        // 飞书 API 更新消息时，content 必须是双重序列化的 JSON 字符串
+        // 即: {"msg_type":"interactive", "content": "{\"config\":...}"}
+        // 使用 objectMapper 对 contentJson 进行转义，确保格式正确
         try {
+            // 使用 Map 构建请求体，Jackson 会自动正确处理转义
+            Map<String, Object> bodyMap = new java.util.HashMap<>();
+            bodyMap.put("msg_type", msgType);
+            bodyMap.put("content", contentJson);  // contentJson 是字符串，Jackson 会自动转义成 JSON 字符串
+            String body = objectMapper.writeValueAsString(bodyMap);
+
+            // 调试日志：打印请求体和 URL
+            log.info("[DEBUG] updateMessage 请求 URL: {}", url);
+            log.info("[DEBUG] updateMessage 请求体: {}", body);
+            // 调试日志：打印请求体和 URL
+            log.info("[DEBUG] updateMessage 请求 URL: {}", url);
+            log.info("[DEBUG] updateMessage 请求体: {}", body);
+            log.info("[DEBUG] updateMessage headers: Authorization=Bearer {}...", 
+                tenantAccessToken != null && tenantAccessToken.length() > 10 ? 
+                tenantAccessToken.substring(0, 10) + "..." : "null");
+
+            HttpEntity<String> entity = new HttpEntity<>(body, headers);
             restTemplate.exchange(url, org.springframework.http.HttpMethod.PUT, entity, String.class);
-            log.debug("消息更新成功: messageId={}", messageId);
+            log.info("[DEBUG] 消息更新成功: messageId={}, msgType={}", messageId, msgType);
             return true;
         } catch (HttpClientErrorException e) {
-            // 检查是否是编辑次数上限错误
-            if (e.getStatusCode().value() == 400 && e.getResponseBodyAsString().contains("230072")) {
+            // 调试日志：打印完整错误响应
+            String errorBody = e.getResponseBodyAsString();
+            log.debug("[DEBUG] 消息更新失败 HTTP 状态码: {}", e.getStatusCode());
+            log.debug("[DEBUG] 消息更新失败响应体: {}", errorBody);
+            // 检查是否是编辑次数上限错误（230072）
+            if (e.getStatusCode().value() == 400 && errorBody.contains("230072")) {
                 log.warn("消息已达到编辑次数上限，需要发送新消息: messageId={}", messageId);
             } else {
-                log.warn("消息更新失败: messageId={}", messageId, e);
+                log.warn("消息更新失败: messageId={}, error={}", messageId, errorBody);
             }
             return false;
         } catch (Exception e) {
-            log.warn("消息更新失败: messageId={}", messageId, e);
+            // 调试日志：打印其他异常
+            log.debug("[DEBUG] 消息更新失败（非HttpClientErrorException）: messageId={}", messageId, e);
             return false;
         }
     }

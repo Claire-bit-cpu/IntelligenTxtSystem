@@ -92,8 +92,8 @@ public class MessageBatchService {
         log.debug("消息已加入合并队列: chatId={}, eventType={}, 队列长度={}", 
                 maskChatId(chatId), safeEventType, size);
 
-        // 达到阈值，立即生成合并摘要并推送
-        if (size != null && size >= batchThreshold) {
+        // 达到阈值，立即生成合并摘要并推送（threshold <= 0 时禁用立即推送，只走定时刷新）
+        if (batchThreshold > 0 && size != null && size >= batchThreshold) {
             String summary = buildBatchSummary(queueKey, safeEventType);
             // 清空队列（推送后删除，避免重复推送）
             redisTemplate.delete(queueKey);
@@ -128,11 +128,22 @@ public class MessageBatchService {
 
     /**
      * 推送单个合并队列中的消息
+     * 只有队列已过期（超过窗口时间）才推送
      */
     private void flushBatch(String queueKey) {
         // 获取队列中的所有消息
         List<String> messages = redisTemplate.opsForList().range(queueKey, 0, -1);
         if (messages == null || messages.isEmpty()) {
+            return;
+        }
+
+        // 检查队列是否过期：查看 Redis TTL
+        // TTL < 0 表示已过期或无过期时间，需要推送
+        // TTL >= 0 表示还在窗口内，不推送
+        Long ttl = redisTemplate.getExpire(queueKey, TimeUnit.SECONDS);
+        if (ttl != null && ttl > 0) {
+            // 队列还在窗口期内，不推送
+            log.debug("合并队列未到期，跳过: key={}, ttl={}s", queueKey, ttl);
             return;
         }
 
@@ -150,7 +161,7 @@ public class MessageBatchService {
         if (feishuClient != null && summary != null) {
             try {
                 feishuClient.sendText(chatId, summary);
-                log.info("合并消息已推送: chatId={}, eventType={}, 消息数={}", 
+                log.info("合并消息已推送: chatId={}, eventType={}, 消息数={}",
                         maskChatId(chatId), eventType, messages.size());
             } catch (Exception e) {
                 log.error("合并消息推送失败: chatId={}, eventType={}", maskChatId(chatId), eventType, e);
@@ -171,8 +182,9 @@ public class MessageBatchService {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("📊 **%s 事件汇总**（过去 %d 分钟）\n\n", 
-                getEventTypeDisplayName(eventType), batchWindowSeconds / 60));
+        int hours = batchWindowSeconds / 3600;
+        sb.append(String.format("📊 **%s 事件汇总**（过去 %d 小时）\n\n",
+                getEventTypeDisplayName(eventType), hours));
 
         // 按消息内容分组计数
         var messageCounts = new java.util.HashMap<String, Integer>();

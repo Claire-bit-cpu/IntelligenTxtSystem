@@ -97,7 +97,7 @@ public class TaskMonitorService {
         }
 
         try {
-            String content = buildMonitorText();
+            String content = buildMonitorCard();
             if (content == null) {
                 result.put("code", 500);
                 result.put("msg", "获取任务列表失败");
@@ -113,9 +113,6 @@ public class TaskMonitorService {
                 return result;
             }
 
-            // content 必须是 JSON 字符串: {"text":"..."}
-            String contentJson = "{\"text\":\"" + escapeJson(content) + "\"}";
-
             // 策略1：编辑次数接近上限时，主动发送新消息
             if (lastMonitorMessageId != null && updateCount >= MAX_UPDATE_COUNT) {
                 log.info("消息编辑次数接近上限（{}/{}），主动发送新消息", updateCount, MAX_UPDATE_COUNT);
@@ -125,38 +122,38 @@ public class TaskMonitorService {
 
             boolean pushSuccess = false;
             if (lastMonitorMessageId != null) {
-                // 尝试原地更新文本消息
-                boolean updateSuccess = feishuClient.updateMessage(lastMonitorMessageId, contentJson, "text");
+                // 尝试原地更新卡片消息
+                boolean updateSuccess = feishuClient.updateMessage(lastMonitorMessageId, "interactive", content);
                 if (updateSuccess) {
                     updateCount++;
                     consecutiveUpdateFailures = 0; // 重置失败计数
                     pushSuccess = true;
-                    log.debug("任务监控消息已更新: messageId={}, 编辑次数={}", lastMonitorMessageId, updateCount);
+                    log.debug("任务监控卡片已更新: messageId={}, 编辑次数={}", lastMonitorMessageId, updateCount);
                 } else {
                     // 更新失败（可能是编辑次数上限），发送新消息
                     consecutiveUpdateFailures++;
-                    log.info("消息更新失败（第 {} 次），发送新消息（旧messageId={}）", consecutiveUpdateFailures, lastMonitorMessageId);
-                    lastMonitorMessageId = feishuClient.sendText(monitorChatId, content);
+                    log.info("卡片更新失败（第 {} 次），发送新消息（旧messageId={}）", consecutiveUpdateFailures, lastMonitorMessageId);
+                    lastMonitorMessageId = feishuClient.sendCard(monitorChatId, content);
                     if (lastMonitorMessageId != null) {
                         updateCount = 0; // 重置编辑计数
                         consecutiveUpdateFailures = 0; // 重置失败计数
                         pushSuccess = true;
-                        log.info("任务监控新消息已发送: messageId={}", lastMonitorMessageId);
+                        log.info("任务监控新卡片已发送: messageId={}", lastMonitorMessageId);
                     } else {
-                        log.warn("任务监控新消息发送失败");
+                        log.warn("任务监控新卡片发送失败");
                     }
                 }
             } else {
                 // 首次发送或主动刷新
-                lastMonitorMessageId = feishuClient.sendText(monitorChatId, content);
+                lastMonitorMessageId = feishuClient.sendCard(monitorChatId, content);
                 if (lastMonitorMessageId != null) {
                     updateCount = 0;
                     consecutiveUpdateFailures = 0;
                     pushSuccess = true;
-                    log.info("任务监控消息已发送: messageId={}", lastMonitorMessageId);
+                    log.info("任务监控卡片已发送: messageId={}", lastMonitorMessageId);
                 } else {
                     consecutiveUpdateFailures++;
-                    log.warn("任务监控消息发送失败（第 {} 次）", consecutiveUpdateFailures);
+                    log.warn("任务监控卡片发送失败（第 {} 次）", consecutiveUpdateFailures);
                 }
             }
             
@@ -204,27 +201,31 @@ public class TaskMonitorService {
     }
 
     /**
-     * 构建任务监控文本（使用飞书 Markdown 格式）
-     * 只显示代码审查任务
+     * 构建任务监控卡片（使用飞书交互式卡片格式）
+     * 显示代码审查和部署任务
      */
-    private String buildMonitorText() {
+    private String buildMonitorCard() {
         List<AsyncTaskStatus> tasks;
         try {
-            // 只获取代码审查任务（通过 eventType 筛选）
-            tasks = taskStatusService.listTasks(null, "code_review");
+            // 获取代码审查和部署任务
+            List<AsyncTaskStatus> codeReviewTasks = taskStatusService.listTasks(null, "code_review");
+            List<AsyncTaskStatus> deployTasks = taskStatusService.listTasks(null, "deploy");
+            tasks = new java.util.ArrayList<>();
+            tasks.addAll(codeReviewTasks);
+            tasks.addAll(deployTasks);
             
-            // 如果没有代码审查任务，尝试获取所有任务（兼容旧数据）
+            // 如果都没有，尝试获取所有任务（兼容旧数据）
             if (tasks.isEmpty()) {
                 tasks = taskStatusService.listTasks(null, null);
             }
         } catch (Exception e) {
             log.warn("获取任务列表失败: {}", e.getMessage());
-            return null;
+            return buildEmptyCard();
         }
 
-        // 如果没有任务，返回简单提示
+        // 如果没有任务，返回空状态卡片
         if (tasks.isEmpty()) {
-            return "🤖 **任务监控面板**\n\n暂无任务";
+            return buildEmptyCard();
         }
 
         int total = tasks.size();
@@ -239,43 +240,84 @@ public class TaskMonitorService {
                 .average()
                 .orElse(0);
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("🤖 **代码审查任务监控**\n\n");
-
+        // 构建卡片元素
+        StringBuilder elements = new StringBuilder();
+        
         // 统计信息
-        sb.append("📊 **任务统计**\n");
-        sb.append(String.format("总数: %d | 运行中: %d | 成功: %d | 失败: %d\n",
-                total, running, completed, failed));
-        sb.append(String.format("⏱️ 平均耗时: %.0fms\n", avgDuration));
+        elements.append(String.format("""
+                {"tag":"div","text":{"tag":"lark_md","content":"**📊 任务统计**"}},
+                {"tag":"div","fields":[
+                    {"tag":"lark_md","content":"**总数**: %d"},
+                    {"tag":"lark_md","content":"**运行中**: %d"},
+                    {"tag":"lark_md","content":"**成功**: %d"},
+                    {"tag":"lark_md","content":"**失败**: %d"}
+                ]},
+                {"tag":"div","text":{"tag":"lark_md","content":"⏱️ 平均耗时: %.0fms"}},
+                {"tag":"hr"},
+                {"tag":"div","text":{"tag":"lark_md","content":"**📋 最近任务**"}},
+                """, total, running, completed, failed, avgDuration));
 
-        sb.append("\n---\n\n");
-
-        // 最近任务列表
-        sb.append("📋 **最近任务**\n\n");
-
-        int showCount = Math.min(tasks.size(), 10);
+        // 最近任务列表（最多5个）
+        int showCount = Math.min(tasks.size(), 5);
         for (int i = 0; i < showCount; i++) {
             AsyncTaskStatus task = tasks.get(i);
             String statusEmoji = getStatusEmoji(task.getStatus());
             String progressBar = buildProgressBar(task.getProgress());
             String durationStr = task.getDurationMs() != null ? task.getDurationMs() + "ms" : "-";
+            String eventType = task.getEventType() != null ? task.getEventType() : "未知";
 
             String taskIdShort = task.getTaskId().length() > 8
                     ? task.getTaskId().substring(0, 8) + "..."
                     : task.getTaskId();
 
-            sb.append(String.format("%s `%s`\n", statusEmoji, taskIdShort));
-            sb.append(String.format("   📊 %d%% %s | ⏱️ %s\n", task.getProgress(), progressBar, durationStr));
-            sb.append(String.format("   📝 %s\n\n", task.getStatusMsg() != null ? task.getStatusMsg() : "-"));
+            elements.append(String.format("""
+                {"tag":"div","text":{"tag":"lark_md","content":"%s `%s` [%s]"} },
+                {"tag":"div","text":{"tag":"lark_md","content":"📊 %d%% %s | ⏱️ %s"}},
+                {"tag":"div","text":{"tag":"lark_md","content":"📝 %s"}},
+                """, statusEmoji, taskIdShort, eventType, 
+                    task.getProgress(), progressBar, durationStr,
+                    task.getStatusMsg() != null ? task.getStatusMsg() : "-"));
         }
 
         // 底部时间戳
-        sb.append("---\n");
         String timestamp = java.time.LocalDateTime.now()
                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        sb.append("最后更新: ").append(timestamp).append("\n");
 
-        return sb.toString();
+        String cardJson = String.format("""
+                {
+                    "config": {"wide_screen_mode": true},
+                    "header": {
+                        "title": {"tag": "plain_text", "content": "🤖 任务监控面板"},
+                        "template": "blue"
+                    },
+                    "elements": [
+                        %s
+                        {"tag": "hr"},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "最后更新: %s"}}
+                    ]
+                }
+                """, elements.toString(), timestamp);
+
+        return cardJson;
+    }
+
+    /**
+     * 构建空状态卡片
+     */
+    private String buildEmptyCard() {
+        return """
+                {
+                    "config": {"wide_screen_mode": true},
+                    "header": {
+                        "title": {"tag": "plain_text", "content": "🤖 任务监控面板"},
+                        "template": "blue"
+                    },
+                    "elements": [
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "暂无任务"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "💡 执行 `/deploy` 或 `/review` 等指令后会显示任务进度"}}
+                    ]
+                }
+                """;
     }
 
     /**

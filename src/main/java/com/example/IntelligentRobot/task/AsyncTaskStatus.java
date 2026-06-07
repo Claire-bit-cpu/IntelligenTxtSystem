@@ -38,6 +38,7 @@ public class AsyncTaskStatus {
     private String chatId;        // 飞书群聊ID（用于发送新消息）
     private StringBuilder logs;   // 任务执行日志（累积）
     private Long durationMs;      // 任务耗时（毫秒）
+    private String taskType;      // 任务类型（如 "DEPLOY" 表示部署任务）
     
     // ====== 静态引用 TaskStatusService（通过 ApplicationContextProvider 获取）======
     private static TaskStatusService getService() {
@@ -183,6 +184,24 @@ public class AsyncTaskStatus {
     }
     
     /**
+     * 更新任务事件类型（线程安全）
+     * @param taskId 任务ID
+     * @param eventType 事件类型
+     */
+    public static void updateEventType(String taskId, String eventType) {
+        getService().update(taskId, v -> v.setEventType(eventType));
+    }
+    
+    /**
+     * 设置任务类型（线程安全）
+     * @param taskId 任务ID
+     * @param taskType 任务类型（如 "DEPLOY" 表示部署任务）
+     */
+    public static void setTaskType(String taskId, String taskType) {
+        getService().update(taskId, v -> v.setTaskType(taskType));
+    }
+    
+    /**
      * 清理已完成的任务（可选，防止内存泄漏）
      * @param olderThanMinutes 清理超过指定分钟数的已完成任务
      */
@@ -276,4 +295,7 @@ public class AsyncTaskStatus {
 
     public Long getDurationMs() { return durationMs; }
     public void setDurationMs(Long durationMs) { this.durationMs = durationMs; }
+
+    public String getTaskType() { return taskType; }
+    public void setTaskType(String taskType) { this.taskType = taskType; }
 }

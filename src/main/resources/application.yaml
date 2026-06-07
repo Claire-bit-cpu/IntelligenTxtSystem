@@ -83,6 +83,10 @@ github:
   # 用于 /deploy 指令触发 GitHub Actions 工作流
   # 格式：环境名:owner/repo:工作流文件名:分支名（多个环境用逗号分隔）
   deploy: "dev:Claire-bit-cpu/Test:deploy-dev-java.yml:master,test:Claire-bit-cpu/Test:deploy-test-java.yml:master,staging:Claire-bit-cpu/Test:deploy-staging-java.yml:master,prod:Claire-bit-cpu/Test:deploy-prod-java.yml:master"
+  # 默认部署目标（当用户不指定 --target 参数时使用）
+  # 可选值：default, server1, server2, aliyun, aws, tencent
+  # 支持通过环境变量 GITHUB_DEFAULT_TARGET 设置
+  default-target: ${GITHUB_DEFAULT_TARGET:default}
 
   # GitHub Actions 回调配置
   # 用于接收 GitHub Actions 工作流完成事件
@@ -153,8 +157,8 @@ server:
 # 日志配置
 logging:
   level:
-    com.example.intelligentRobot.client.FeishuClient: DEBUG
-    com.example.intelligentRobot.client.GitHubClient: DEBUG
+    com.example.IntelligentRobot.client.FeishuClient: DEBUG
+    com.example.IntelligentRobot.client.GitHubClient: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"
 
@@ -176,12 +180,12 @@ notification.dedup:
 notification.batch:
   # 是否启用消息合并，默认 true
   enabled: ${NOTIFICATION_BATCH_ENABLED:true}
-  # 合并窗口时间（秒），默认 600 秒（10 分钟）
+  # 合并窗口时间（秒），默认 43200 秒（12 小时）
   # 窗口内的同类消息会被合并为一条摘要推送
-  window-seconds: ${NOTIFICATION_BATCH_WINDOW_SECONDS:600}
-  # 合并阈值，达到此数量立即推送（不等待窗口到期），默认 3
-  # 推荐设置为 3，更激进地合并消息，减少刷屏
-  threshold: ${NOTIFICATION_BATCH_THRESHOLD:3}
+  window-seconds: ${NOTIFICATION_BATCH_WINDOW_SECONDS:43200}
+  # 合并阈值，达到此数量立即推送（不等待窗口到期），默认 0（禁用立即推送）
+  # 设置为 0 时，只按窗口时间定时推送（12小时）
+  threshold: ${NOTIFICATION_BATCH_THRESHOLD:0}
 
 # 搜索引擎配置（SQLite FTS5）
 search:

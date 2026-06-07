@@ -1,19 +1,24 @@
 package com.example.IntelligentRobot.service.handler;
 
 import com.example.IntelligentRobot.annotation.Command;
+import com.example.IntelligentRobot.client.FeishuClient;
 import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.config.GitHubConfig;
 import com.example.IntelligentRobot.dto.CommandContext;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Git 提交差异查询指令处理器（新框架版本）
  * 指令格式：/gitdiff <仓库别名> <commit_sha>
+ * 使用飞书卡片消息展示差异，提供更清晰的视觉效果
  */
 @Component
 public class GitDiffCommandHandler {
@@ -22,10 +27,15 @@ public class GitDiffCommandHandler {
 
     private final GitHubClient gitHubClient;
     private final GitHubConfig gitHubConfig;
+    private final FeishuClient feishuClient;
+    private final ObjectMapper objectMapper;
 
-    public GitDiffCommandHandler(GitHubClient gitHubClient, GitHubConfig gitHubConfig) {
+    public GitDiffCommandHandler(GitHubClient gitHubClient, GitHubConfig gitHubConfig,
+                                FeishuClient feishuClient, ObjectMapper objectMapper) {
         this.gitHubClient = gitHubClient;
         this.gitHubConfig = gitHubConfig;
+        this.feishuClient = feishuClient;
+        this.objectMapper = objectMapper;
     }
 
     @Command(
@@ -131,39 +141,82 @@ public class GitDiffCommandHandler {
                 }
             }
 
-            StringBuilder sb = new StringBuilder();
-            
-            // 差异总结
-            sb.append("📝 **提交差异总结**\n\n");
-            sb.append("🔖 SHA：`").append(sha, 0, Math.min(8, sha.length())).append("`\n");
+            // 构建飞书卡片消息
+            String cardJson = buildGitDiffCard(sha, commitMsg, authorName, authorDate,
+                    totalAdditions, totalDeletions, files, addedCount, modifiedCount,
+                    deletedCount, renamedCount, repoFullName);
+
+            // 如果卡片构建成功，返回卡片 JSON（以 __CARD__ 开头，MessageProcessor 会识别并发送卡片）
+            if (cardJson != null && !cardJson.isEmpty() && !cardJson.equals("{}")) {
+                return "__CARD__" + cardJson;
+            } else {
+                // 卡片构建失败，降级为文本消息
+                log.warn("Git diff 卡片构建失败，降级为文本消息");
+                return buildTextFallback(sha, commitMsg, authorName, authorDate,
+                        totalAdditions, totalDeletions, files, addedCount, modifiedCount,
+                        deletedCount, renamedCount);
+            }
+
+        } catch (Exception e) {
+            log.error("查询 Git diff 失败", e);
+            return "❌ 查询失败：" + e.getMessage();
+        }
+    }
+
+    /**
+     * 构建 Git diff 飞书卡片 JSON
+     */
+    private String buildGitDiffCard(String sha, String commitMsg, String authorName, String authorDate,
+                                   int totalAdditions, int totalDeletions,
+                                   List<Map<String, Object>> files,
+                                   int addedCount, int modifiedCount, int deletedCount, int renamedCount,
+                                   String repoFullName) {
+        try {
+            Map<String, Object> card = new HashMap<>();
+            card.put("config", Map.of("wide_screen_mode", true));
+
+            // Header
+            Map<String, Object> header = new HashMap<>();
+            header.put("title", Map.of("tag", "plain_text", "content", "📝 Git 提交差异"));
+            header.put("template", "blue");
+            card.put("header", header);
+
+            // Elements
+            List<Map<String, Object>> elements = new ArrayList<>();
+
+            // 提交信息
+            StringBuilder infoText = new StringBuilder();
+            infoText.append("**🔖 SHA：** `").append(sha, 0, Math.min(8, sha.length())).append("`\n");
             if (!commitMsg.isEmpty()) {
-                sb.append("📋 消息：").append(commitMsg).append("\n");
+                infoText.append("**📋 消息：** ").append(escapeMarkdown(commitMsg)).append("\n");
             }
             if (!authorName.isEmpty()) {
-                sb.append("👤 作者：").append(authorName).append("\n");
+                infoText.append("**👤 作者：** ").append(escapeMarkdown(authorName)).append("\n");
             }
             if (!authorDate.isEmpty()) {
-                sb.append("📅 日期：").append(authorDate).append("\n");
+                infoText.append("**📅 日期：** ").append(authorDate).append("\n");
             }
-            sb.append("📊 总变更：+").append(totalAdditions).append(" / -").append(totalDeletions).append("\n");
-            sb.append("📂 文件：共 ").append(files.size()).append(" 个文件");
-            
+            infoText.append("**📊 总变更：** +").append(totalAdditions).append(" / -").append(totalDeletions).append("\n");
+            infoText.append("**📂 文件：** 共 ").append(files.size()).append(" 个文件");
+
             StringBuilder fileTypes = new StringBuilder();
             if (addedCount > 0) fileTypes.append(" 新增").append(addedCount);
             if (modifiedCount > 0) fileTypes.append(" 修改").append(modifiedCount);
             if (deletedCount > 0) fileTypes.append(" 删除").append(deletedCount);
             if (renamedCount > 0) fileTypes.append(" 重命名").append(renamedCount);
             if (fileTypes.length() > 0) {
-                sb.append("（").append(fileTypes.toString().trim()).append("）");
+                infoText.append("（").append(fileTypes.toString().trim()).append("）");
             }
-            sb.append("\n\n");
-            sb.append("---\n\n");
 
-            // 文件详情
+            elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", infoText.toString())));
+            elements.add(Map.of("tag", "hr"));
+
+            // 文件详情（最多显示5个）
             int fileCount = 0;
             for (Map<String, Object> file : files) {
                 if (fileCount >= 5) {
-                    sb.append("\n... 还有 ").append(files.size() - 5).append(" 个文件未显示");
+                    elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md",
+                            "content", "💡 还有 " + (files.size() - 5) + " 个文件未显示，请在 GitHub 查看完整差异")));
                     break;
                 }
 
@@ -173,35 +226,151 @@ public class GitDiffCommandHandler {
                 int deletions = (Integer) file.get("deletions");
                 String patch = (String) file.get("patch");
 
-                sb.append("**📄 ").append(fileName).append("** (").append(status).append(" ");
-                sb.append("+").append(additions).append("/-").append(deletions).append(")\n");
-                
-                if (patch != null) {
-                    sb.append("```diff\n");
-                    // 只显示前 20 行 diff
-                    String[] lines = patch.split("\n");
-                    int lineCount = 0;
-                    for (String line : lines) {
-                        if (lineCount >= 20) {
-                            sb.append("... 省略更多行\n");
-                            break;
-                        }
-                        sb.append(line).append("\n");
-                        lineCount++;
+                // 文件信息
+                String statusEmoji = switch (status) {
+                    case "added" -> "✅";
+                    case "modified" -> "📝";
+                    case "deleted" -> "❌";
+                    case "renamed" -> "🔄";
+                    default -> "📄";
+                };
+
+                StringBuilder fileInfo = new StringBuilder();
+                fileInfo.append("**").append(statusEmoji).append(" ").append(escapeMarkdown(fileName)).append("**\n");
+                fileInfo.append("状态：").append(status).append(" | +").append(additions).append("/-").append(deletions);
+
+                elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", fileInfo.toString())));
+
+                // 代码差异（如果有）
+                if (patch != null && !patch.isEmpty()) {
+                    String truncatedPatch = truncatePatch(patch, 15);
+                    if (truncatedPatch != null) {
+                        // 使用 Markdown 代码块嵌入 diff 内容
+                        String diffMarkdown = "```diff\n" + truncatedPatch + "\n```";
+                        elements.add(Map.of("tag", "div", "text", Map.of("tag", "lark_md", "content", diffMarkdown)));
                     }
-                    sb.append("```\n\n");
-                } else {
-                    sb.append("\n");
                 }
 
+                elements.add(Map.of("tag", "hr"));
                 fileCount++;
             }
 
-            return sb.toString();
+            // 查看完整差异按钮
+            String githubUrl = "https://github.com/" + repoFullName + "/commit/" + sha;
+            elements.add(Map.of("tag", "action", "actions", List.of(
+                    Map.of("tag", "button", "text", Map.of("tag", "plain_text", "content", "🔗 查看完整差异"),
+                            "url", githubUrl, "type", "primary")
+            )));
 
+            card.put("elements", elements);
+            return objectMapper.writeValueAsString(card);
         } catch (Exception e) {
-            log.error("查询 Git diff 失败", e);
-            return "❌ 查询失败：" + e.getMessage();
+            log.error("构建 Git diff 卡片失败", e);
+            return null;
         }
+    }
+
+    /**
+     * 构建降级文本消息（当卡片发送失败时）
+     */
+    private String buildTextFallback(String sha, String commitMsg, String authorName, String authorDate,
+                                     int totalAdditions, int totalDeletions,
+                                     List<Map<String, Object>> files,
+                                     int addedCount, int modifiedCount, int deletedCount, int renamedCount) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("📝 **提交差异总结**\n\n");
+        sb.append("🔖 SHA：`").append(sha, 0, Math.min(8, sha.length())).append("`\n");
+        if (!commitMsg.isEmpty()) {
+            sb.append("📋 消息：").append(commitMsg).append("\n");
+        }
+        if (!authorName.isEmpty()) {
+            sb.append("👤 作者：").append(authorName).append("\n");
+        }
+        if (!authorDate.isEmpty()) {
+            sb.append("📅 日期：").append(authorDate).append("\n");
+        }
+        sb.append("📊 总变更：+").append(totalAdditions).append(" / -").append(totalDeletions).append("\n");
+        sb.append("📂 文件：共 ").append(files.size()).append(" 个文件");
+
+        StringBuilder fileTypes = new StringBuilder();
+        if (addedCount > 0) fileTypes.append(" 新增").append(addedCount);
+        if (modifiedCount > 0) fileTypes.append(" 修改").append(modifiedCount);
+        if (deletedCount > 0) fileTypes.append(" 删除").append(deletedCount);
+        if (renamedCount > 0) fileTypes.append(" 重命名").append(renamedCount);
+        if (fileTypes.length() > 0) {
+            sb.append("（").append(fileTypes.toString().trim()).append("）");
+        }
+        sb.append("\n\n");
+        sb.append("---\n\n");
+
+        // 文件详情
+        int fileCount = 0;
+        for (Map<String, Object> file : files) {
+            if (fileCount >= 5) {
+                sb.append("\n... 还有 ").append(files.size() - 5).append(" 个文件未显示");
+                break;
+            }
+
+            String fileName = (String) file.get("filename");
+            String status = (String) file.get("status");
+            int additions = (Integer) file.get("additions");
+            int deletions = (Integer) file.get("deletions");
+            String patch = (String) file.get("patch");
+
+            sb.append("**📄 ").append(fileName).append("** (").append(status).append(" ");
+            sb.append("+").append(additions).append("/-").append(deletions).append(")\n");
+
+            if (patch != null) {
+                sb.append("```diff\n");
+                String[] lines = patch.split("\n");
+                int lineCount = 0;
+                for (String line : lines) {
+                    if (lineCount >= 20) {
+                        sb.append("... 省略更多行\n");
+                        break;
+                    }
+                    sb.append(line).append("\n");
+                    lineCount++;
+                }
+                sb.append("```\n\n");
+            } else {
+                sb.append("\n");
+            }
+
+            fileCount++;
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * 截断 patch 内容（限制行数）
+     */
+    private String truncatePatch(String patch, int maxLines) {
+        if (patch == null) return null;
+        String[] lines = patch.split("\n");
+        if (lines.length <= maxLines) {
+            return patch;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < maxLines; i++) {
+            sb.append(lines[i]).append("\n");
+        }
+        sb.append("... 省略更多行");
+        return sb.toString();
+    }
+
+    /**
+     * 转义飞书 Markdown 特殊字符
+     */
+    private String escapeMarkdown(String text) {
+        if (text == null) return "";
+        return text.replace("\\", "\\\\")
+                .replace("*", "\\*")
+                .replace("_", "\\_")
+                .replace("`", "\\`")
+                .replace("[", "\\[")
+                .replace("]", "\\]");
     }
 }

@@ -353,9 +353,18 @@ public class MessageProcessor {
 
     /**
      * 发送慢任务完成通知（只有耗时超过阈值的任务才调用）
+     * 只发送文本消息，不发卡片
+     * 部署任务（taskType="DEPLOY"）不发送此通知
      */
     private void sendSlowTaskCompleteNotification(String taskId, long duration, String chatId) {
         try {
+            // 检查任务类型，如果是部署任务则不发送通知
+            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
+            if (task != null && "DEPLOY".equals(task.getTaskType())) {
+                log.info("部署任务完成，不发送慢任务完成通知: taskId={}", taskId);
+                return;
+            }
+
             StringBuilder sb = new StringBuilder();
             sb.append("✅ 任务完成\n\n");
             sb.append("🆔 任务ID: `").append(taskId).append("`\n");
@@ -375,9 +384,18 @@ public class MessageProcessor {
 
     /**
      * 发送慢任务失败通知（只有耗时超过阈值的任务才调用）
+     * 只发送文本消息，不发卡片
+     * 部署任务（taskType="DEPLOY"）不发送此通知
      */
     private void sendSlowTaskFailedNotification(String taskId, String errorMsg, String chatId) {
         try {
+            // 检查任务类型，如果是部署任务则不发送通知
+            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
+            if (task != null && "DEPLOY".equals(task.getTaskType())) {
+                log.info("部署任务失败，不发送慢任务失败通知: taskId={}", taskId);
+                return;
+            }
+
             StringBuilder sb = new StringBuilder();
             sb.append("❌ 任务失败\n\n");
             sb.append("🆔 任务ID: `").append(taskId).append("`\n");
@@ -453,6 +471,7 @@ public class MessageProcessor {
      * 更新飞书侧消息（原地更新，不发送新消息）
      * 通过 updateMessage API 更新之前发送的任务通知消息
      * 如果更新失败（如达到编辑次数上限），自动发送新消息
+     * 支持文本消息和卡片消息的更新
      */
     private void updateFeishuMessage(String taskId, int progress, String statusMsg) {
         try {
@@ -460,16 +479,43 @@ public class MessageProcessor {
             if (task == null || task.getMessageId() == null) {
                 return;
             }
+            
+            // 判断消息类型：如果有 eventType 且是 deploy，使用卡片更新；否则使用文本更新
+            String eventType = task.getEventType();
+            boolean useCard = "deploy".equals(eventType) || "code_review".equals(eventType);
+            
+            if (useCard) {
+                // 使用卡片消息更新
+                updateFeishuCardMessage(taskId, progress, statusMsg);
+            } else {
+                // 使用文本消息更新
+                updateFeishuTextMessage(taskId, progress, statusMsg);
+            }
+        } catch (Exception e) {
+            log.warn("更新飞书消息失败: taskId={}, error={}", taskId, e.getMessage());
+        }
+    }
+
+    /**
+     * 更新文本消息
+     */
+    private void updateFeishuTextMessage(String taskId, int progress, String statusMsg) {
+        try {
+            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
+            if (task == null || task.getMessageId() == null) {
+                return;
+            }
+            
             // 构建进度文本消息
             String progressText = buildProgressText(taskId, progress, statusMsg);
             // content 必须是 JSON 字符串: {"text":"..."}
             String contentJson = "{\"text\":\"" + progressText.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"}";
             
             // 尝试更新消息
-            boolean updateSuccess = feishuClient.updateMessage(task.getMessageId(), contentJson, "text");
+            boolean updateSuccess = feishuClient.updateMessage(task.getMessageId(), "text", contentJson);
             if (!updateSuccess) {
                 // 更新失败（可能是编辑次数上限），发送新消息
-                log.info("任务消息更新失败，发送新消息: taskId={}, oldMessageId={}", taskId, task.getMessageId());
+                log.info("任务文本消息更新失败，发送新消息: taskId={}, oldMessageId={}", taskId, task.getMessageId());
                 // 从 task 获取 chatId（比 ThreadLocal 更可靠）
                 String chatId = task.getChatId();
                 if (chatId != null) {
@@ -477,15 +523,108 @@ public class MessageProcessor {
                     if (newMessageId != null) {
                         // 更新任务中的 messageId
                         AsyncTaskStatus.setMessageId(taskId, newMessageId);
-                        log.info("任务消息已更新为新消息: taskId={}, newMessageId={}", taskId, newMessageId);
+                        log.info("任务文本消息已更新为新消息: taskId={}, newMessageId={}", taskId, newMessageId);
                     }
                 } else {
                     log.warn("无法获取 chatId，无法发送新消息: taskId={}", taskId);
                 }
             }
         } catch (Exception e) {
-            log.warn("更新飞书消息失败: taskId={}, error={}", taskId, e.getMessage());
+            log.warn("更新飞书文本消息失败: taskId={}, error={}", taskId, e.getMessage());
         }
+    }
+
+    /**
+     * 更新卡片消息
+     */
+    private void updateFeishuCardMessage(String taskId, int progress, String statusMsg) {
+        try {
+            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
+            if (task == null || task.getMessageId() == null) {
+                return;
+            }
+            
+            // 构建进度卡片消息
+            String cardJson = buildProgressCard(taskId, progress, statusMsg);
+            
+            // 尝试更新卡片消息
+            boolean updateSuccess = feishuClient.updateMessage(task.getMessageId(), "interactive", cardJson);
+            if (!updateSuccess) {
+                // 更新失败（可能是编辑次数上限），发送新卡片消息
+                log.info("任务卡片消息更新失败，发送新卡片: taskId={}, oldMessageId={}", taskId, task.getMessageId());
+                // 从 task 获取 chatId（比 ThreadLocal 更可靠）
+                String chatId = task.getChatId();
+                if (chatId != null) {
+                    String newMessageId = feishuClient.sendCard(chatId, cardJson);
+                    if (newMessageId != null) {
+                        // 更新任务中的 messageId
+                        AsyncTaskStatus.setMessageId(taskId, newMessageId);
+                        log.info("任务卡片消息已更新为新卡片: taskId={}, newMessageId={}", taskId, newMessageId);
+                    }
+                } else {
+                    log.warn("无法获取 chatId，无法发送新卡片: taskId={}", taskId);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("更新飞书卡片消息失败: taskId={}, error={}", taskId, e.getMessage());
+        }
+    }
+
+    /**
+     * 构建进度卡片 JSON（用于飞书卡片消息更新）
+     */
+    private String buildProgressCard(String taskId, int progress, String statusMsg) {
+        AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
+        String eventType = task != null && task.getEventType() != null ? task.getEventType() : "未知";
+        String taskIdShort = taskId.length() > 8 ? taskId.substring(0, 8) + "..." : taskId;
+        
+        // 根据进度确定颜色和状态
+        String color = "blue";
+        String statusEmoji = "⏳";
+        if (progress >= 100) {
+            color = "green";
+            statusEmoji = "✅";
+        } else if (statusMsg != null && statusMsg.contains("失败")) {
+            color = "red";
+            statusEmoji = "❌";
+        } else if (progress > 0) {
+            color = "blue";
+            statusEmoji = "🔄";
+        }
+        
+        // 构建进度条（文本形式）
+        int bars = progress / 10;
+        StringBuilder progressBar = new StringBuilder();
+        progressBar.append("[");
+        for (int i = 0; i < 10; i++) {
+            progressBar.append(i < bars ? "█" : "░");
+        }
+        progressBar.append("] ");
+        
+        String cardJson = String.format("""
+                {
+                    "config": {"wide_screen_mode": true},
+                    "header": {
+                        "title": {"tag": "plain_text", "content": "%s 任务进度"},
+                        "template": "%s"
+                    },
+                    "elements": [
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "🆔 任务ID: `%s`"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "📦 类型: %s"}},
+                        {"tag": "hr"},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "📊 进度: %d%%%%"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "%s"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "📝 状态: %s"}},
+                        {"tag": "div", "text": {"tag": "lark_md", "content": "🕐 更新时间: %s"}}
+                    ]
+                }
+                """, statusEmoji, color, taskIdShort, eventType, 
+                    progress, progressBar.toString(), 
+                    statusMsg != null ? statusMsg : "-",
+                    java.time.LocalDateTime.now()
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        
+        return cardJson;
     }
 
     /**
