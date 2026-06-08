@@ -6,10 +6,13 @@ import com.example.IntelligentRobot.dto.CommandContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * GitHub Actions 指令处理器（新框架版本）
@@ -18,6 +21,10 @@ import java.util.Map;
  * /github status <仓库> <run-id> - 查询运行状态
  * /github list <仓库> [工作流] - 列出最近运行
  * /github cancel <仓库> <run-id> - 取消运行
+ *
+ * 仓库参数支持：
+ * 1. owner/repo 格式
+ * 2. 别名（需在 application.yaml 中配置 github.repo-aliases）
  */
 @Component
 public class GitHubCommandHandler {
@@ -26,6 +33,35 @@ public class GitHubCommandHandler {
 
     @Autowired(required = false)
     private GitHubClient gitHubClient;
+
+    /**
+     * 仓库别名映射（别名 -> owner/repo）
+     * 格式：别名1=owner1/repo1,别名2=owner2/repo2
+     */
+    @Value("${github.repo-aliases:}")
+    private String repoAliasesConfig;
+
+    /**
+     * 解析后的别名映射表
+     */
+    private Map<String, String> aliasMap = new HashMap<>();
+
+    /**
+     * 初始化别名映射表
+     */
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        if (repoAliasesConfig != null && !repoAliasesConfig.isEmpty()) {
+            String[] aliases = repoAliasesConfig.split(",");
+            for (String alias : aliases) {
+                String[] parts = alias.trim().split("=");
+                if (parts.length == 2) {
+                    aliasMap.put(parts[0].trim(), parts[1].trim());
+                }
+            }
+        }
+        log.info("GitHub 仓库别名加载完成: {} 个别名", aliasMap.size());
+    }
 
     @Command(
         name = "github",
@@ -79,14 +115,30 @@ public class GitHubCommandHandler {
     private String handleWorkflow(String githubCmd, String senderOpenId) {
         String[] parts = githubCmd.substring(9).split("\\s+", 3);
         if (parts.length < 3) {
-            return "❌ 用法：/github workflow <owner/repo> <工作流文件> <分支>\n示例：/github workflow Claire-bit-cpu/Test deploy-dev.yml develop";
+            return "❌ 用法：/github workflow <owner/repo 或别名> <工作流文件> <分支>\n示例：/github workflow Claire-bit-cpu/Test deploy-dev.yml develop";
         }
-        String[] repoParts = parts[0].split("/", 2);
-        if (repoParts.length < 2) {
-            return "❌ 仓库格式错误，应为：owner/repo";
+        // 解析仓库（支持别名）
+        String repoArg = parts[0];
+        String owner;
+        String repo;
+        if (aliasMap.containsKey(repoArg)) {
+            String repoFull = aliasMap.get(repoArg);
+            String[] repoParts = repoFull.split("/", 2);
+            if (repoParts.length == 2) {
+                owner = repoParts[0];
+                repo = repoParts[1];
+                log.info("使用别名解析仓库: {} -> {}/{}", repoArg, owner, repo);
+            } else {
+                return "❌ 别名配置错误: " + repoArg + " -> " + repoFull;
+            }
+        } else {
+            String[] repoParts = repoArg.split("/", 2);
+            if (repoParts.length < 2) {
+                return "❌ 仓库格式错误，应为：owner/repo 或已配置的别名";
+            }
+            owner = repoParts[0];
+            repo = repoParts[1];
         }
-        String owner = repoParts[0];
-        String repo = repoParts[1];
         String workflowId = parts[1];
         String ref = parts[2];
         try {
@@ -116,16 +168,31 @@ public class GitHubCommandHandler {
     private String handleStatus(String githubCmd) {
         String[] parts = githubCmd.substring(7).split("\\s+", 2);
         if (parts.length < 2) {
-            return "❌ 用法：/github status <owner/repo> <run-id>\n示例：/github status Claire-bit-cpu/Test 123456";
+            return "❌ 用法：/github status <owner/repo 或别名> <run-id>\n示例：/github status Claire-bit-cpu/Test 123456";
         }
-        String[] repoParts = parts[0].split("/", 2);
-        if (repoParts.length < 2) {
-            return "❌ 仓库格式错误，应为：owner/repo";
+        // 解析仓库（支持别名）
+        String repoArg = parts[0];
+        String owner;
+        String repo;
+        if (aliasMap.containsKey(repoArg)) {
+            String repoFull = aliasMap.get(repoArg);
+            String[] repoParts = repoFull.split("/", 2);
+            if (repoParts.length == 2) {
+                owner = repoParts[0];
+                repo = repoParts[1];
+            } else {
+                return "❌ 别名配置错误: " + repoArg;
+            }
+        } else {
+            String[] repoParts = repoArg.split("/", 2);
+            if (repoParts.length < 2) {
+                return "❌ 仓库格式错误，应为：owner/repo 或已配置的别名";
+            }
+            owner = repoParts[0];
+            repo = repoParts[1];
         }
-        String owner = repoParts[0];
-        String repo = repoParts[1];
         try {
-            int runId = Integer.parseInt(parts[1]);
+            long runId = Long.parseLong(parts[1]);
             Map<String, Object> run = gitHubClient.getWorkflowRun(owner, repo, runId);
             if (run == null) {
                 return "❌ 获取工作流运行状态失败";
@@ -161,12 +228,27 @@ public class GitHubCommandHandler {
 
     private String handleList(String githubCmd) {
         String[] parts = githubCmd.substring(5).split("\\s+", 2);
-        String[] repoParts = parts[0].split("/", 2);
-        if (repoParts.length < 2) {
-            return "❌ 仓库格式错误，应为：owner/repo";
+        // 解析仓库（支持别名）
+        String repoArg = parts[0];
+        String owner;
+        String repo;
+        if (aliasMap.containsKey(repoArg)) {
+            String repoFull = aliasMap.get(repoArg);
+            String[] repoParts = repoFull.split("/", 2);
+            if (repoParts.length == 2) {
+                owner = repoParts[0];
+                repo = repoParts[1];
+            } else {
+                return "❌ 别名配置错误: " + repoArg;
+            }
+        } else {
+            String[] repoParts = repoArg.split("/", 2);
+            if (repoParts.length < 2) {
+                return "❌ 仓库格式错误，应为：owner/repo 或已配置的别名";
+            }
+            owner = repoParts[0];
+            repo = repoParts[1];
         }
-        String owner = repoParts[0];
-        String repo = repoParts[1];
         String workflowId = parts.length > 1 ? parts[1] : null;
         try {
             List<Map<String, Object>> runs = gitHubClient.listWorkflowRuns(owner, repo, workflowId, 10);
@@ -176,7 +258,7 @@ public class GitHubCommandHandler {
             StringBuilder sb = new StringBuilder();
             sb.append("📋 最近的工作流运行\n\n");
             for (Map<String, Object> run : runs) {
-                int runId = (Integer) run.get("id");
+                Long runId = (Long) run.get("id");
                 String status = (String) run.get("status");
                 String conclusion = (String) run.get("conclusion");
                 String branch = (String) run.get("head_branch");
@@ -194,16 +276,31 @@ public class GitHubCommandHandler {
     private String handleCancel(String githubCmd, String senderOpenId) {
         String[] parts = githubCmd.substring(7).split("\\s+", 2);
         if (parts.length < 2) {
-            return "❌ 用法：/github cancel <owner/repo> <run-id>";
+            return "❌ 用法：/github cancel <owner/repo 或别名> <run-id>";
         }
-        String[] repoParts = parts[0].split("/", 2);
-        if (repoParts.length < 2) {
-            return "❌ 仓库格式错误，应为：owner/repo";
+        // 解析仓库（支持别名）
+        String repoArg = parts[0];
+        String owner;
+        String repo;
+        if (aliasMap.containsKey(repoArg)) {
+            String repoFull = aliasMap.get(repoArg);
+            String[] repoParts = repoFull.split("/", 2);
+            if (repoParts.length == 2) {
+                owner = repoParts[0];
+                repo = repoParts[1];
+            } else {
+                return "❌ 别名配置错误: " + repoArg;
+            }
+        } else {
+            String[] repoParts = repoArg.split("/", 2);
+            if (repoParts.length < 2) {
+                return "❌ 仓库格式错误，应为：owner/repo 或已配置的别名";
+            }
+            owner = repoParts[0];
+            repo = repoParts[1];
         }
-        String owner = repoParts[0];
-        String repo = repoParts[1];
         try {
-            int runId = Integer.parseInt(parts[1]);
+            long runId = Long.parseLong(parts[1]);
             String result = gitHubClient.cancelWorkflowRun(owner, repo, runId);
             return String.format("""
                         🛑 取消工作流运行
@@ -222,20 +319,29 @@ public class GitHubCommandHandler {
     }
 
     private String buildGitHubHelp() {
-        return """
+        StringBuilder help = new StringBuilder();
+        help.append("""
                 ❌ GitHub 命令格式错误
 
                 🚀 可用命令：
-                • /github workflow <owner/repo> <工作流文件> <分支> - 触发工作流
-                • /github status <owner/repo> <run-id> - 查询运行状态
-                • /github list <owner/repo> [工作流文件] - 列出最近运行
-                • /github cancel <owner/repo> <run-id> - 取消运行
+                • /github workflow <仓库> <工作流文件> <分支> - 触发工作流
+                • /github status <仓库> <run-id> - 查询运行状态
+                • /github list <仓库> [工作流文件] - 列出最近运行
+                • /github cancel <仓库> <run-id> - 取消运行
 
                 💡 示例：
                 /github workflow Claire-bit-cpu/Test deploy-dev.yml develop
                 /github status Claire-bit-cpu/Test 123456
-                /github list Claire-bit-cpu/Test
-                /github cancel Claire-bit-cpu/Test 123456
-                """;
+
+                """);
+
+        if (!aliasMap.isEmpty()) {
+            help.append("📋 已配置的仓库别名：\n");
+            for (Map.Entry<String, String> entry : aliasMap.entrySet()) {
+                help.append("  /github workflow ").append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
+            }
+        }
+
+        return help.toString();
     }
 }

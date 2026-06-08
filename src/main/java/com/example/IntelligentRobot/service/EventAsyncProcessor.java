@@ -244,32 +244,51 @@ public class EventAsyncProcessor {
                 • `/weather 北京`
                 • `/weather 深圳`
                 • `天气 上海`
+                • `/weather 北京,上海,深圳` - 查询多个城市
+                
+                **返回信息：**
+                • 🌡️ 当前温度 / 体感温度
+                • 🌤️ 天气状况（晴、阴、雨等）
+                • 💧 湿度百分比
+                • 💨 风力风向
+                • 📊 最高/最低气温
                 
                 **功能特性：**
                 • 支持上下文感知（5分钟内复用上次城市）
+                • 支持多城市查询（逗号分隔）
                 • 第二次查询可直接用 `/weather`
-                • 显示温度、天气状况、风力等信息
                 
                 💡 5分钟内再次发送 `/weather` 会自动复用上次的城市
+                💡 支持查询国内外主要城市
                 """;
             
             case "help_translate" -> """
                 🌐 **翻译**
                 
-                **指令：**
-                • `/translate <文本>` - 中英互译
+                **指令格式：**
+                • `/translate <文本>` - 自动检测语言并翻译
+                • `/translate <目标语言> <文本>` - 翻译为指定语言
+                • `/translate <源语言> <目标语言> <文本>` - 指定源语言和目标语言
                 • `翻译 <文本>` - 中文别名指令
                 
-                **示例：**
-                • `/translate Hello World`
-                • `/translate 你好世界`
-                • `翻译 How are you`
+                **支持语言：**
+                • 中文、英语、日语、韩语（四语言互译）
+                
+                **使用示例：**
+                • `/translate Hello World` - 自动检测（英语→中文）
+                • `/translate 你好世界` - 自动检测（中文→英语）
+                • `/translate 日语 こんにちは` - 翻译为日语
+                • `/translate 中文 안녕하세요` - 韩语→中文
+                • `/translate 英语 日语 Hello` - 英语→日语
+                • `/translate 中文 韩语 你好` - 中文→韩语
                 
                 **功能特性：**
-                • 自动检测语言方向（中文→英文，英文→中文）
-                • 支持长短文本翻译
+                • 自动检测语言（中文、英语、日语、韩语）
+                • 支持任意语言组合互译
+                • 文本长度限制：500字符
                 
-                💡 自动检测语言方向，无需指定源语言
+                💡 提示：可以省略源语言，系统会自动检测
+                💡 示例：`/translate 日语 你好` = `/translate 中文 日语 你好`
                 """;
             
             case "help_schedule" -> """
@@ -545,6 +564,7 @@ public class EventAsyncProcessor {
                 
                 **指令：**
                 • `/deploy <环境>` - 触发部署（需二次确认）
+                • `/deploy <环境> --target <目标>` - 指定部署目标
                 
                 **可用环境：**
                 • `dev` - 开发环境
@@ -552,17 +572,28 @@ public class EventAsyncProcessor {
                 • `staging` - 预发布环境
                 • `prod` / `production` - 生产环境
                 
+                **部署目标（--target）：**
+                • `default` - 默认服务器
+                • `server1` - 服务器1
+                • `server2` - 服务器2
+                • `aliyun` - 阿里云
+                • `aws` - AWS
+                • `tencent` - 腾讯云
+                
                 **示例：**
-                • `/deploy test` - 部署到测试环境
-                • `/deploy prod` - 部署到生产环境
+                • `/deploy test` - 部署到测试环境（默认目标）
+                • `/deploy prod --target aliyun` - 部署到生产环境（阿里云）
+                • `/deploy dev --target tencent` - 部署到开发环境（腾讯云）
                 
                 **功能说明：**
                 • 部署操作需要二次确认（防误操作）
                 • 支持通过 `github.deploy` 配置环境变量定义部署映射
                 • 未配置 GitHub 时进入模拟模式
+                • 部署完成后会发送飞书通知
                 
                 💡 生产环境部署需要额外确认
                 💡 需要配置 GitHub Token 和部署配置
+                💡 高级用法：使用 `/github workflow` 直接触发工作流
                 """;
             
             case "help_monitor" -> """

@@ -541,7 +541,7 @@ public String getBranchSha(String owner, String repo, String branch) {
      * @param workflowId 工作流 ID 或文件名（如 ci.yml）
      * @param ref 分支或 tag（如 main）
      * @param inputs 工作流输入参数（可选）
-     * @return 触发结果
+     * @return 触发结果（包含 run-id）
      */
     public String triggerWorkflow(String owner, String repo, String workflowId, String ref, Map<String, String> inputs) {
         String url = apiUrl + "/repos/" + owner + "/" + repo + "/actions/workflows/" + workflowId + "/dispatches";
@@ -563,11 +563,60 @@ public String getBranchSha(String owner, String repo, String branch) {
 
         try {
             restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-            return "✅ 工作流已触发";
+            
+            // 触发成功后，等待 2 秒让 GitHub 创建运行记录
+            Thread.sleep(2000);
+            
+            // 查询最新的工作流运行，获取 run-id
+            String runId = getLatestRunId(owner, repo, workflowId);
+            
+            if (runId != null) {
+                return "✅ 工作流已触发\n🆔 运行 ID: " + runId + "\n\n💡 使用 /github status " + owner + "/" + repo + " " + runId + " 查询状态";
+            } else {
+                return "✅ 工作流已触发\n⚠️ 无法获取运行 ID，请使用 /github list " + owner + "/" + repo + " 查看";
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "✅ 工作流已触发\n⚠️ 无法获取运行 ID（查询超时）";
         } catch (Exception e) {
             logger.error("触发 GitHub Actions 工作流失败: workflowId={}, ref={}", workflowId, ref, e);
             throw new RuntimeException("触发工作流失败: " + e.getMessage(), e);
         }
+    }
+    
+    /**
+     * 获取最新的工作流运行 ID
+     * @param owner 仓库所有者
+     * @param repo 仓库名称
+     * @param workflowId 工作流 ID 或文件名
+     * @return 最新的运行 ID（如果获取失败返回 null）
+     */
+    private String getLatestRunId(String owner, String repo, String workflowId) {
+        try {
+            String url = apiUrl + "/repos/" + owner + "/" + repo + "/actions/workflows/" + workflowId + "/runs?per_page=1";
+            
+            HttpHeaders headers = new HttpHeaders();
+            if (token != null && !token.isEmpty()) {
+                headers.set("Authorization", "Bearer " + token);
+            }
+            headers.set("Accept", "application/vnd.github.v3+json");
+            
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            
+            ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
+            
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> runs = (List<Map<String, Object>>) response.getBody().get("workflow_runs");
+                if (runs != null && !runs.isEmpty()) {
+                    Object runIdObj = runs.get(0).get("id");
+                    return runIdObj != null ? runIdObj.toString() : null;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("获取最新运行 ID 失败", e);
+        }
+        return null;
     }
 
     /**
@@ -577,7 +626,7 @@ public String getBranchSha(String owner, String repo, String branch) {
      * @param runId 工作流运行 ID
      * @return 运行信息
      */
-    public Map<String, Object> getWorkflowRun(String owner, String repo, int runId) {
+    public Map<String, Object> getWorkflowRun(String owner, String repo, long runId) {
         String url = apiUrl + "/repos/" + owner + "/" + repo + "/actions/runs/" + runId;
         ResponseEntity<Map> response = executeGet(url, Map.class);
         return response != null ? response.getBody() : null;
@@ -633,7 +682,7 @@ public String getBranchSha(String owner, String repo, String branch) {
      * @param runId 工作流运行 ID
      * @return 取消结果
      */
-    public String cancelWorkflowRun(String owner, String repo, int runId) {
+    public String cancelWorkflowRun(String owner, String repo, long runId) {
         String url = apiUrl + "/repos/" + owner + "/" + repo + "/actions/runs/" + runId + "/cancel";
 
         HttpHeaders headers = new HttpHeaders();
