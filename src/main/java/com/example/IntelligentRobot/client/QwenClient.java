@@ -4,6 +4,7 @@ import com.example.IntelligentRobot.dto.CodeReviewResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -16,6 +17,7 @@ import java.util.Map;
  * 用于翻译等功能
  */
 @Component
+@RefreshScope
 @ConfigurationProperties(prefix = "qianwen")
 public class QwenClient {
 

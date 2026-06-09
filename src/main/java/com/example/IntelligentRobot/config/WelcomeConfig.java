@@ -1,6 +1,8 @@
 package com.example.IntelligentRobot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
+import org.springframework.stereotype.Component;
 
 /**
  * 新成员入群欢迎配置
@@ -8,6 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 配置前缀：welcome
  * 对应 application.yml 中的 welcome: 配置段
  */
+@Component
+@RefreshScope
 @ConfigurationProperties(prefix = "welcome")
 public class WelcomeConfig {
 

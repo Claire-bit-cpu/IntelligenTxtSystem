@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: IntelligentRobot
+  cloud:
+    nacos:
+      config:
+        # Nacos 服务器地址（支持通过环境变量 NACOS_SERVER_ADDR 配置）
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        # 命名空间ID（用于环境隔离：dev/test/prod，通过环境变量 NACOS_NAMESPACE 配置）
+        namespace: ${NACOS_NAMESPACE:public}
+        # 配置分组（默认 DEFAULT_GROUP，通过环境变量 NACOS_GROUP 配置）
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+        # 配置文件后缀（对应 Nacos 中的配置格式）
+        file-extension: yaml
+        # 启用配置自动刷新（修改 Nacos 配置后无需重启应用）
+        refresh-enabled: true
+        # 配置超时时间（毫秒）
+        timeout: 5000
+        # Nacos 认证用户名（如果开启了认证，通过环境变量 NACOS_USERNAME 配置）
+        username: ${NACOS_USERNAME:}
+        # Nacos 认证密码（通过环境变量 NACOS_PASSWORD 配置）
+        password: ${NACOS_PASSWORD:}
+
+# ============================================================
+# Nacos 配置中心使用说明
+# ============================================================
+#
+# 一、Nacos 配置创建步骤
+#   1. 启动 Nacos：startup.cmd -m standalone
+#   2. 访问控制台：http://localhost:8848/nacos （默认账号/密码：nacos/nacos）
+#   3. 创建命名空间：dev / test / prod
+#   4. 创建配置：
+#      - Data ID   ：IntelligentRobot.yaml
+#      - Group     ：DEFAULT_GROUP
+#      - 配置格式  ：YAML
+#      - 配置内容  ：从 docs/NACOS_CONFIG_TEMPLATE.yaml 复制
+#
+# 二、环境变量说明（部署时设置）
+#   NACOS_SERVER_ADDR    ：Nacos 服务器地址（默认 localhost:8848）
+#   NACOS_NAMESPACE     ：命名空间 ID（默认 public）
+#   NACOS_GROUP         ：配置分组（默认 DEFAULT_GROUP）
+#   NACOS_USERNAME      ：Nacos 用户名（可选）
+#   NACOS_PASSWORD      ：Nacos 密码（可选）
+#
+# 三、配置优先级（从高到低）
+#   Nacos 配置中心 > 本地 application.yaml > 环境变量默认值
+#
+# 四、动态刷新
+#   修改 Nacos 配置后点击「发布」，应用会在 3-5 秒内自动刷新
+#   需要动态刷新的配置类必须标注 @RefreshScope 注解
+#
+# 五、与 .env 的关系
+#   集成 Nacos 后，.env 文件不再需要
+#   原来 .env 中的配置全部迁移到 Nacos 配置中心
+#   application.yaml 变为兜底配置（Nacos 中没有的配置才使用本地值）
+#
+# ============================================================

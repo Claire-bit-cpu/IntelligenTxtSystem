@@ -5,12 +5,14 @@
 package com.example.IntelligentRobot.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.HashMap;
 import java.util.Map;
 
 @Configuration
+@RefreshScope
 @ConfigurationProperties(prefix = "gitlab")
 public class GitLabConfig {
 

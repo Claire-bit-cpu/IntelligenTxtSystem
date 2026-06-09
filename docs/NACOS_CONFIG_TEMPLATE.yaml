@@ -1,0 +1,274 @@
+# ============================================================
+# Nacos 配置模板
+# ============================================================
+# 使用方法：
+#   1. 登录 Nacos 控制台：http://localhost:8848/nacos
+#   2. 选择对应命名空间（dev/test/prod）
+#   3. 创建配置：
+#      - Data ID: IntelligentRobot.yaml
+#      - Group: DEFAULT_GROUP
+#      - 配置格式: YAML
+#      - 配置内容: 复制下方所有内容（去掉注释中的示例说明）
+#   4. 点击「发布」
+#
+# ⚠️ 注意：
+#   - 将下方 all `your_xxx_here` 替换为实际值
+#   - 生产环境务必修改所有默认密码和密钥
+#   - 此文件不直接使用，仅作为 Nacos 配置内容参考
+# ============================================================
+
+
+# ============================================================
+# Spring 应用配置
+# ============================================================
+spring:
+  application:
+    name: IntelligentRobot
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 
+      database: 0
+      timeout: 5000
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: 5000
+
+# ============================================================
+# 服务器配置
+# ============================================================
+server:
+  port: 8082
+
+# ============================================================
+# 【必填】飞书配置
+# ============================================================
+feishu:
+  app-id: your_app_id_here
+  app-secret: your_app_secret_here
+  api-base-url: https://open.feishu.cn/open-apis
+  token-buffer-seconds: 60
+  encrypt-key: your_encrypt_key_here
+  approval-definition-code: 
+
+# ============================================================
+# 【必填】Redis 配置（Spring Data Redis）
+# 已在上方 spring.data.redis 中配置
+# ============================================================
+
+# ============================================================
+# 【可选】AI 配置（启用代码审查时需要）
+# ============================================================
+qianwen:
+  api-key: your_qianwen_api_key_here
+  api-url: https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation
+  model: qwen-turbo
+  max-diff-length: 8000
+
+# ============================================================
+# 【可选】GitHub 配置（启用 Git 集成时需要）
+# ============================================================
+github:
+  token: your_github_token_here
+  api-url: https://api.github.com
+  webhook-secret: your_webhook_secret_here
+  webhook:
+    auto-review: true
+  repo-aliases: frontend=owner/repo,backend=owner/repo
+  admin-open-ids: ou_xxx,ou_yyy
+  developer-open-ids: ou_aaa,ou_bbb
+  default-target: default
+  deploy: "dev:owner/repo:deploy-dev-java.yml:master,test:owner/repo:deploy-test-java.yml:master,prod:owner/repo:deploy-prod-java.yml:master"
+  callback:
+    url: 
+    secret: 
+
+# ============================================================
+# 【可选】GitLab 配置（启用 GitLab 集成时需要）
+# ============================================================
+gitlab:
+  api-url: https://gitlab.com/api/v4
+  token: your_gitlab_token_here
+  enabled: false
+
+# ============================================================
+# 【可选】JIRA 配置（启用 JIRA 集成时需要）
+# ============================================================
+jira:
+  url: https://your-domain.atlassian.net
+  username: your_email_here
+  api-token: your_api_token_here
+  enabled: false
+  local-fallback-file: ./local_tasks.md
+
+# ============================================================
+# 【可选】高德天气 API（启用天气查询时需要）
+# ============================================================
+amap:
+  key: your_amap_api_key_here
+
+# ============================================================
+# 【可选】通知配置（智能降噪）
+# ============================================================
+notification:
+  db-path: ./notification.db
+  default-chat-ids: oc_xxx,oc_yyy
+  noise-reduction-enabled: true
+
+notification.dedup:
+  window-seconds: 300
+
+notification.batch:
+  enabled: true
+  window-seconds: 43200
+  threshold: 0
+
+# ============================================================
+# 【可选】搜索引擎配置（SQLite FTS5）
+# ============================================================
+search:
+  index-path: ./search-index.db
+  sync-interval-ms: 7200000
+  max-sync-messages-per-chat: 500
+  startup-delay-ms: 60000
+  api-call-delay-ms: 100
+  sync-chat-ids: auto
+  sync-wiki-space-ids: auto
+
+# ============================================================
+# 【可选】新成员入群欢迎配置
+# ============================================================
+welcome:
+  enabled: true
+  template: |
+    欢迎 {{name}} 加入本群！
+
+    我是飞书智能机器人，可以帮助你提升研发效率。
+    请@我，并输入 /help 查看我能为您提供的服务。
+  batch-threshold: 2
+  batch-template: |
+    欢迎新成员加入本群：{{names}}
+
+    我是飞书智能机器人，可以帮助你提升研发效率。
+    请@我，并输入 /help 查看我能为您提供的服务。
+  cooldown: 30000
+  batch-window-ms: 3000
+
+# ============================================================
+# 【可选】AI 智能理解配置
+# ============================================================
+ai:
+  enabled: true
+  system-prompt: 
+
+# ============================================================
+# 【可选】上下文管理器配置
+# ============================================================
+context:
+  global-param-ttl-minutes: 5
+
+# ============================================================
+# 【可选】敏感操作二次确认配置
+# ============================================================
+confirm:
+  token-expire-seconds: 300
+
+# ============================================================
+# 【可选】任务状态存储配置
+# ============================================================
+task:
+  status:
+    store: memory
+    max-logs-length: 5000
+  slow-threshold-ms: 3000
+  monitor:
+    chat-id: 
+    push-interval-ms: 10000
+  cleanup:
+    enabled: true
+    cron: 0 0/5 * * * *
+    older-than-minutes: 60
+
+# ============================================================
+# 【可选】模糊匹配配置（三级响应策略 - Level 2）
+# ============================================================
+fuzzy-match:
+  enabled: true
+  threshold: 0.70
+  max-suggestions: 3
+
+# ============================================================
+# 【可选】DevOps 配置
+# ============================================================
+devops:
+  ping-timeout-ms: 5000
+  http-timeout-ms: 5000
+
+# ============================================================
+# 【可选】Prometheus 配置
+# ============================================================
+prometheus:
+  url: http://localhost:9090
+  enabled: false
+
+# ============================================================
+# 【可选】Grafana 配置
+# ============================================================
+grafana:
+  url: http://localhost:3000
+  api-key: your_grafana_api_key_here
+  enabled: false
+
+# ============================================================
+# 【可选】限流配置
+# ============================================================
+ratelimit:
+  global-qps: 1000
+  ip-qps: 100
+  enabled: true
+
+# ============================================================
+# 【可选】线程池配置（高并发优化）
+# ============================================================
+thread-pool:
+  high-priority:
+    core-size: 10
+    max-size: 50
+    queue-capacity: 1000
+  low-priority:
+    core-size: 5
+    max-size: 20
+    queue-capacity: 2000
+
+# ============================================================
+# 【可选】消息去重配置
+# ============================================================
+dedup:
+  window-ms: 30000
+  cleanup-ms: 600000
+
+# ============================================================
+# 日志配置
+# ============================================================
+logging:
+  level:
+    com.example.IntelligentRobot.client.FeishuClient: DEBUG
+    com.example.IntelligentRobot.client.GitHubClient: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n"
+
+# ============================================================
+# Actuator 监控端点配置
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    prometheus:
+      enabled: true
