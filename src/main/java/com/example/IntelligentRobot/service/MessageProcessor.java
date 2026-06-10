@@ -275,9 +275,13 @@ public class MessageProcessor {
             // ===== 更新任务状态：结果格式化 (80%) =====
             updateMessageTaskProgress(taskId, 80, "指令处理完成，准备发送回复");
 
-            // 发送回复
+            // 发送回复（添加安全检测）
             if (reply != null && reply.startsWith("__CARD__")) {
                 String cardJson = reply.substring("__CARD__".length());
+                // 卡片消息也做安全检测
+                if (containsFakeExecutionInProcessor(cardJson)) {
+                    cardJson = "{\"config\":{\"wide_screen_mode\":true},\"header\":{\"title\":{\"tag\":\"plain_text\",\"content\":\"⚠️ 安全检测\"}},\"elements\":[{\"tag\":\"div\",\"text\":{\"tag\":\"ltext\",\"content\":\"检测到虚假执行结果，已拦截\"}}]}";
+                }
                 feishuClient.sendCard(chatId, cardJson);
                 // 卡片消息也保存对话历史
                 aiUnderstandingService.saveConversationHistory(
@@ -287,6 +291,15 @@ public class MessageProcessor {
                     "[卡片消息]"
                 );
             } else if (reply != null) {
+                // 【安全检测】检查回复是否包含虚假执行结果
+                if (containsFakeExecutionInProcessor(reply)) {
+                    log.warn("【安全检测】回复包含虚假执行结果，已拦截。reply={}", reply.substring(0, Math.min(100, reply.length())));
+                    reply = "⚠️ 我检测到回复内容可能包含虚假的执行结果。\n\n" +
+                            "请使用 / 开头的指令来执行操作，例如：\n" +
+                            "• /schedule 2026-05-30 15:00 会议 - 创建日程\n" +
+                            "• /updateschedule 18:00 - 修改日程\n\n" +
+                            "💡 输入 /help 查看所有可用指令";
+                }
                 feishuClient.sendText(chatId, reply);
                 // 保存对话历史到 Redis
                 aiUnderstandingService.saveConversationHistory(
@@ -807,5 +820,40 @@ public class MessageProcessor {
     private String maskOpenId(String openId) {
         if (openId == null || openId.length() < 8) return "***";
         return openId.substring(0, 4) + "***" + openId.substring(openId.length() - 4);
+    }
+
+    /**
+     * 检测文本中是否包含虚假执行结果关键词
+     * 用于防止 AI 生成虚假的执行成功消息
+     * 
+     * @param text 要检测的文本
+     * @return 如果包含虚假执行结果关键词返回 true，否则返回 false
+     */
+    private boolean containsFakeExecutionInProcessor(String text) {
+        if (text == null) return false;
+        
+        // 使用正则表达式检测虚假执行结果
+        // 匹配模式：已/已经/已经 + 动作词（添加、创建、修改、更新、删除、取消等）
+        String[] fakePatterns = {
+            "已.{0,3}(添加|创建|修改|更新|删除|取消|更改)",
+            "已经.{0,3}(添加|创建|修改|更新|删除|取消)",
+            "已成功.{0,3}(添加|创建|修改|更新|删除)",
+            "成功.{0,3}(添加|创建|修改|更新|删除)",
+            "(添加|创建|修改|更新|删除|取消).{0,3}成功",
+            "已为您.{0,3}(添加|创建|修改|更新|删除|取消)",
+            "已经为您.{0,3}(添加|创建|修改|更新|删除|取消)",
+            "日程已",
+            "任务已",
+            "已将",
+            "已帮您"
+        };
+        
+        for (String pattern : fakePatterns) {
+            if (java.util.regex.Pattern.compile(pattern).matcher(text).find()) {
+                return true;
+            }
+        }
+        
+        return false;
     }
 }

@@ -17,6 +17,14 @@ spring:
     name: IntelligentRobot
   main:
     allow-circular-references: true
+    # 禁用 Nacos 自动配置（保留依赖，不连接 Nacos 时不影响启动）
+    autoconfigure:
+      exclude:
+        - com.alibaba.cloud.nacos.NacosConfigAutoConfiguration
+        - com.alibaba.cloud.nacos.NacosDiscoveryAutoConfiguration
+        - com.alibaba.cloud.nacos.endpoint.NacosConfigEndpointAutoConfiguration
+        - com.alibaba.cloud.nacos.endpoint.NacosDiscoveryEndpointAutoConfiguration
+        - com.alibaba.cloud.nacos.registry.NacosServiceRegistryAutoConfiguration
   data:
     redis:
       host: ${REDIS_HOST:localhost}

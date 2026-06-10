@@ -4,22 +4,9 @@ spring:
   cloud:
     nacos:
       config:
-        # Nacos 服务器地址（支持通过环境变量 NACOS_SERVER_ADDR 配置）
-        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
-        # 命名空间ID（用于环境隔离：dev/test/prod，通过环境变量 NACOS_NAMESPACE 配置）
-        namespace: ${NACOS_NAMESPACE:public}
-        # 配置分组（默认 DEFAULT_GROUP，通过环境变量 NACOS_GROUP 配置）
-        group: ${NACOS_GROUP:DEFAULT_GROUP}
-        # 配置文件后缀（对应 Nacos 中的配置格式）
-        file-extension: yaml
-        # 启用配置自动刷新（修改 Nacos 配置后无需重启应用）
-        refresh-enabled: true
-        # 配置超时时间（毫秒）
-        timeout: 5000
-        # Nacos 认证用户名（如果开启了认证，通过环境变量 NACOS_USERNAME 配置）
-        username: ${NACOS_USERNAME:}
-        # Nacos 认证密码（通过环境变量 NACOS_PASSWORD 配置）
-        password: ${NACOS_PASSWORD:}
+        enabled: false   # 禁用 Nacos 配置中心（保留依赖，不连接 Nacos）
+      discovery:
+        enabled: false   # 禁用 Nacos 服务发现
 
 # ============================================================
 # Nacos 配置中心使用说明

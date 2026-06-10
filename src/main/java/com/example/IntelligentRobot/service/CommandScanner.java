@@ -6,9 +6,9 @@ import com.example.IntelligentRobot.dto.CommandDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.AopProxyUtils;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.ApplicationContext;
-import org.springframework.context.ApplicationListener;
-import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
@@ -17,37 +17,32 @@ import java.lang.reflect.Method;
  * 指令扫描器
  * 启动时自动扫描并注册带有 @Command 注解的方法
  * 
- * 使用 ContextRefreshedEvent 避免在 @PostConstruct 时产生循环依赖
- * 注意：不在构造函数中注入 CommandRegistry，而是在 onApplicationEvent 中通过 ApplicationContext 获取，避免循环依赖
+ * 使用 ApplicationRunner 替代 ContextRefreshedEvent，
+ * 确保在 Spring 上下文完全初始化后再扫描，避免循环依赖和事件未触发的问题
  */
 @Component
-public class CommandScanner implements ApplicationListener<ContextRefreshedEvent> {
+public class CommandScanner implements ApplicationRunner {
     
     private static final Logger log = LoggerFactory.getLogger(CommandScanner.class);
     
     private final ApplicationContext applicationContext;
+    private final CommandRegistry commandRegistry;
     
     /**
-     * 只注入 ApplicationContext，不注入 CommandRegistry，避免循环依赖
+     * 注入 ApplicationContext 和 CommandRegistry
+     * 使用构造函数注入，Spring 会自动处理依赖顺序
      */
-    public CommandScanner(ApplicationContext applicationContext) {
+    public CommandScanner(ApplicationContext applicationContext, CommandRegistry commandRegistry) {
         this.applicationContext = applicationContext;
+        this.commandRegistry = commandRegistry;
     }
     
     /**
-     * 在 Spring 上下文刷新完成后执行扫描
+     * 在 Spring 上下文完全初始化后执行扫描（ApplicationRunner 在 bean 初始化后执行）
      */
     @Override
-    public void onApplicationEvent(ContextRefreshedEvent event) {
-        // 确保只执行一次（避免父子容器重复执行）
-        if (event.getApplicationContext().getParent() != null) {
-            return;
-        }
-        
+    public void run(ApplicationArguments args) {
         log.info("开始扫描指令...");
-        
-        // 延迟获取 CommandRegistry，避免在构造函数中注入导致循环依赖
-        CommandRegistry commandRegistry = applicationContext.getBean(CommandRegistry.class);
         
         int count = 0;
         
@@ -57,7 +52,7 @@ public class CommandScanner implements ApplicationListener<ContextRefreshedEvent
             Object bean = applicationContext.getBean(beanName);
             Class<?> targetClass = AopProxyUtils.ultimateTargetClass(bean);
             
-            count += registerCommandsInClass(targetClass, bean, commandRegistry);
+            count += registerCommandsInClass(targetClass, bean);
         }
         
         log.info("指令扫描完成，共注册 {} 个指令", count);
@@ -66,12 +61,12 @@ public class CommandScanner implements ApplicationListener<ContextRefreshedEvent
     /**
      * 注册类中的所有 @Command 方法
      */
-    private int registerCommandsInClass(Class<?> clazz, Object bean, CommandRegistry commandRegistry) {
+    private int registerCommandsInClass(Class<?> clazz, Object bean) {
         int count = 0;
         
         for (Method method : clazz.getDeclaredMethods()) {
             if (method.isAnnotationPresent(Command.class)) {
-                registerCommand(method, bean, commandRegistry);
+                registerCommand(method, bean);
                 count++;
             }
         }
@@ -82,7 +77,7 @@ public class CommandScanner implements ApplicationListener<ContextRefreshedEvent
     /**
      * 注册单个指令
      */
-    private void registerCommand(Method method, Object bean, CommandRegistry commandRegistry) {
+    private void registerCommand(Method method, Object bean) {
         Command annotation = method.getAnnotation(Command.class);
 
         // 验证方法签名

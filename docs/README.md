@@ -26,6 +26,7 @@
 7. [Webhook 配置教程](#webhook-配置教程)
 8. [开发指南 (Developer Guide)](#开发指南-developer-guide)
 9. [交付产物说明](#交付产物说明)
+10. [配置说明 (Configuration)](#配置说明)
 
 ---
 
@@ -40,6 +41,7 @@
 -  **智能降噪**：消息去重 + 消息合并，有效减少通知疲劳
 -  **上下文感知**：支持多轮对话，自动记忆用户偏好和输入历史
 -  **权限控制**：RBAC 模型，支持动态配置热更新
+-  **配置中心**：集成 Nacos，支持配置集中管理、动态刷新、环境隔离
 -  **高并发架构**：Webhook 快速响应（10ms 内），业务逻辑全异步执行
 -  **可扩展框架**：基于注解的指令注册，支持动态加载和热插拔
 
@@ -53,6 +55,7 @@
 | **搜索引擎** | SQLite FTS5（trigram 分词，毫秒级响应） |
 | **AI 能力** | 通义千问 DashScope SDK |
 | **监控** | Spring Boot Actuator |
+| **配置中心** | Nacos（动态配置刷新） |
 | **构建工具** | Maven |
 | **JSON 处理** | Jackson |
 | **简化代码** | Lombok |
@@ -658,7 +661,56 @@ cd IntelligentRobot
 
 ### 5.2 配置环境变量
 
-**【推荐方法】使用 `.env` 文件配置**
+IntelligentRobot 支持两种配置方式：**本地 `.env` 文件** 和 **Nacos 配置中心**，推荐使用 Nacos 实现配置集中管理。
+
+---
+
+#### 方式一：使用 Nacos 配置中心（推荐生产环境）
+
+Nacos 提供配置集中管理、动态刷新、环境隔离等能力，适合生产环境使用。
+
+**步骤 1：启动 Nacos 服务器**
+
+```bash
+# 方式 A：本地单机启动
+startup.cmd -m standalone
+
+# 方式 B：Docker 启动
+docker run -d --name nacos -p 8848:8848 -e MODE=standalone nacos/nacos-server:latest
+```
+
+访问控制台：http://localhost:8848/nacos（默认账号/密码：`nacos/nacos`）
+
+**步骤 2：在 Nacos 中创建配置**
+
+1. 登录 Nacos 控制台 → 命名空间 → 新建命名空间（`dev` / `test` / `prod`）
+2. 配置管理 → 配置列表 → 点击「+」
+3. 填写配置：
+   - **Data ID**：`IntelligentRobot.yaml`
+   - **Group**：`DEFAULT_GROUP`
+   - **配置格式**：`YAML`
+   - **配置内容**：从 `docs/NACOS_CONFIG_TEMPLATE.yaml` 复制，并填写实际值
+4. 点击「发布」
+
+**步骤 3：设置环境变量并启动**
+
+```bash
+# Windows (cmd)
+set NACOS_SERVER_ADDR=localhost:8848
+set NACOS_NAMESPACE=dev
+java -jar target/IntelligentRobot-0.0.1-SNAPSHOT.jar
+
+# Linux/Mac
+export NACOS_SERVER_ADDR=localhost:8848
+export NACOS_NAMESPACE=dev
+java -jar target/IntelligentRobot-0.0.1-SNAPSHOT.jar
+```
+
+> 📖 完整 Nacos 集成指南请参考：`docs/NACOS_CONFIG_GUIDE.md`
+
+---
+
+#### 方式二：使用 `.env` 文件配置（适合本地开发）
 
 1. **复制模板文件**：
    ```bash
@@ -700,6 +752,8 @@ set FEISHU_APP_SECRET=your_app_secret
 ---
 
 #### 配置项说明
+
+> 📋 **配置参考**：所有可用配置项及详细说明，请直接参考 `docs/NACOS_CONFIG_TEMPLATE.yaml` 文件。该文件包含了完整的配置模板，将所有 `your_xxx_here` 替换为实际值即可使用。
 
 ##### 【必填】飞书配置
 ```bash
@@ -1119,7 +1173,7 @@ github:
    - `im.chat.member.bot.added_v1` - 机器人入群
    - `approval.instance.state_change_v4` - 审批状态变更
 
-#### 步骤 4：配置环境变量
+#### 步骤 4：检查环境变量是否配置
 
 ```bash
 export FEISHU_APP_ID=your_app_id
@@ -1358,6 +1412,8 @@ public void execute(CommandContext context) {
 ####  核心文档
 - ✅ `docs/README.md` - 项目完整文档（本文档）
 - ✅ `docs/DEPLOY_CONFIG.md` - 部署配置完全指南（含方案 A/B）
+- ✅ `docs/NACOS_CONFIG_GUIDE.md` - Nacos 配置中心集成指南
+- ✅ `docs/NACOS_CONFIG_TEMPLATE.yaml` - Nacos 配置模板
 
 ####  项目文档
 - ✅ `docs/需求文档.md` - 项目需求文档
@@ -1377,7 +1433,95 @@ public void execute(CommandContext context) {
 
 ## 配置说明
 
-### 完整配置项参考
+IntelligentRobot 支持两种配置方式：**本地配置文件（`.env` + `application.yaml`）** 和 **Nacos 配置中心**，两种方式可以同时使用，Nacos 配置优先级更高。
+
+### 配置方式对比
+
+| 特性 | 本地 `.env` | Nacos 配置中心 |
+|------|-------------|----------------|
+| 配置位置 | 本地文件 | 集中式服务器 |
+| 动态刷新 | ❌ 需重启 | ✅ 无需重启 |
+| 环境隔离 | 手动维护多套 | 命名空间自动隔离 |
+| 敏感配置安全 | 本地文件风险 | 集中管理 + 权限控制 |
+| 版本管理 | Git | 内置版本历史 + 一键回滚 |
+| 推荐场景 | 本地开发 | 测试/生产环境 |
+
+### 方式一：Nacos 配置中心（推荐）
+
+<details>
+<summary>点击查看 Nacos 配置说明</summary>
+
+#### Nacos 配置优先级
+
+配置加载优先级（从高到低）：
+1. **Nacos 配置中心**（最高优先级，会覆盖本地配置）
+2. **本地 `application.yaml`**（兜底配置）
+3. **环境变量**（`${ENV_VAR:default}` 语法）
+4. **默认值**（最低优先级）
+
+#### Nacos 环境隔离
+
+通过命名空间（Namespace）实现环境隔离：
+
+| 命名空间 | 说明 | 对应 `NACOS_NAMESPACE` |
+|---------|------|------------------------|
+| `dev` | 开发环境 | `dev` |
+| `test` | 测试环境 | `test` |
+| `prod` | 生产环境 | `prod` |
+
+同一个 JAR 包，通过环境变量切换配置：
+```bash
+# 开发环境启动
+set NACOS_NAMESPACE=dev
+java -jar IntelligentRobot.jar
+
+# 生产环境启动
+set NACOS_NAMESPACE=prod
+java -jar IntelligentRobot.jar
+```
+
+#### Nacos 动态刷新
+
+修改 Nacos 配置后点击「发布」，应用会在 **3~5 秒内自动刷新**，无需重启。
+
+已支持动态刷新的配置类（`@RefreshScope`）：
+- `FeishuProperties` - 飞书配置
+- `WelcomeConfig` - 欢迎消息配置
+- `GitLabConfig` - GitLab 配置
+- `GitHubConfig` - GitHub 配置
+- `QwenClient` - 通义千问配置
+
+#### Nacos 环境变量
+
+| 环境变量 | 必填 | 默认值 | 说明 |
+|---------|------|--------|------|
+| `NACOS_SERVER_ADDR` | ✅ | `localhost:8848` | Nacos 服务器地址 |
+| `NACOS_NAMESPACE` | ✅ | `public` | 命名空间 ID |
+| `NACOS_GROUP` | ❌ | `DEFAULT_GROUP` | 配置分组 |
+| `NACOS_USERNAME` | ❌ | - | Nacos 用户名（开启认证后必填） |
+| `NACOS_PASSWORD` | ❌ | - | Nacos 密码（开启认证后必填） |
+
+#### Nacos 配置模板
+
+完整的 Nacos 配置模板已生成在 `docs/NACOS_CONFIG_TEMPLATE.yaml`，直接复制内容到 Nacos 控制台即可。
+
+`.env` 变量与 Nacos YAML 路径对应关系：
+
+| `.env` 变量名 | Nacos YAML 路径 |
+|---------------|-----------------|
+| `FEISHU_APP_ID` | `feishu.app-id` |
+| `FEISHU_APP_SECRET` | `feishu.app-secret` |
+| `REDIS_HOST` | `spring.data.redis.host` |
+| `QIANWEN_API_KEY` | `qianwen.api-key` |
+| `GITHUB_TOKEN` | `github.token` |
+| `AMAP_KEY` | `amap.key` |
+| `SERVER_PORT` | `server.port` |
+
+> 📖 完整 Nacos 集成指南请参考：`docs/NACOS_CONFIG_GUIDE.md`
+
+</details>
+
+### 方式二：本地配置文件
 
 <details>
 <summary>点击展开 application.yaml 配置说明</summary>
