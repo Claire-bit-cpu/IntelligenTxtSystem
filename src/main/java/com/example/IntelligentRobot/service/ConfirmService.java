@@ -33,7 +33,7 @@ public class ConfirmService {
     private StringRedisTemplate stringRedisTemplate;
 
     /**
-     * 存储待确认操作
+     * 存储待确认操作（无附加数据）
      *
      * @param openId       操作者 Open ID
      * @param chatId       群聊 ID
@@ -44,16 +44,33 @@ public class ConfirmService {
      */
     public String storePendingAction(String openId, String chatId,
                                    String commandName, String args, String summary) {
+        return storePendingAction(openId, chatId, commandName, args, summary, null);
+    }
+
+    /**
+     * 存储待确认操作（带附加数据）
+     *
+     * @param openId       操作者 Open ID
+     * @param chatId       群聊 ID
+     * @param commandName  指令名称（如 deploy）
+     * @param args         指令参数
+     * @param summary      操作摘要（展示给用户）
+     * @param data         附加数据（JSON 字符串，如成员 ID 列表）
+     * @return confirmToken 确认令牌
+     */
+    public String storePendingAction(String openId, String chatId,
+                                   String commandName, String args, String summary, String data) {
         String token = UUID.randomUUID().toString().substring(0, 8);
         String redisKey = REDIS_PREFIX + token;
 
         // 使用 JSON 格式存储，避免分隔符冲突
-        String value = String.format("{\"openId\":\"%s\",\"chatId\":\"%s\",\"commandName\":\"%s\",\"args\":\"%s\",\"summary\":\"%s\"}",
+        String value = String.format("{\"openId\":\"%s\",\"chatId\":\"%s\",\"commandName\":\"%s\",\"args\":\"%s\",\"summary\":\"%s\",\"data\":\"%s\"}",
                 escapeJson(openId != null ? openId : ""),
                 escapeJson(chatId != null ? chatId : ""),
                 escapeJson(commandName),
                 escapeJson(args != null ? args : ""),
-                escapeJson(summary != null ? summary : ""));
+                escapeJson(summary != null ? summary : ""),
+                escapeJson(data != null ? data : ""));
 
         if (stringRedisTemplate != null) {
             stringRedisTemplate.opsForValue().set(redisKey, value, expireSeconds, TimeUnit.SECONDS);
@@ -93,6 +110,7 @@ public class ConfirmService {
             String commandName = extractJsonField(value, "commandName");
             String args = extractJsonField(value, "args");
             String summary = extractJsonField(value, "summary");
+            String data = extractJsonField(value, "data");
 
             // 校验身份和群聊
             if (!storedOpenId.equals(openId)) {
@@ -107,7 +125,7 @@ public class ConfirmService {
             // 一次性消费：删除 Key
             stringRedisTemplate.delete(redisKey);
 
-            return new PendingAction(storedOpenId, storedChatId, commandName, args, summary);
+            return new PendingAction(storedOpenId, storedChatId, commandName, args, summary, data);
         } catch (Exception e) {
             log.error("解析待确认操作数据失败: token={}", token, e);
             stringRedisTemplate.delete(redisKey);
@@ -181,13 +199,19 @@ public class ConfirmService {
         private final String commandName;
         private final String args;
         private final String summary;
+        private final String data;
 
         public PendingAction(String openId, String chatId, String commandName, String args, String summary) {
+            this(openId, chatId, commandName, args, summary, null);
+        }
+
+        public PendingAction(String openId, String chatId, String commandName, String args, String summary, String data) {
             this.openId = openId;
             this.chatId = chatId;
             this.commandName = commandName;
             this.args = args;
             this.summary = summary;
+            this.data = data;
         }
 
         public String getOpenId() { return openId; }
@@ -195,5 +219,6 @@ public class ConfirmService {
         public String getCommandName() { return commandName; }
         public String getArgs() { return args; }
         public String getSummary() { return summary; }
+        public String getData() { return data; }
     }
 }

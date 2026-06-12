@@ -404,14 +404,25 @@ public class AiUnderstandingService {
         String reply = intent.getReply();
         if (reply != null && !reply.isEmpty()) {
             // 【安全检测】检查 reply 是否包含虚假的执行结果
-            // 如果 AI 谎称执行了某个操作（如"已修改"、"已更新"），则拒绝这个回复
+            // 如果 AI 谎称执行了某个操作（如"我已修改了"、""我已经创建了"），则拒绝这个回复
             if (containsFakeExecution(reply)) {
                 log.warn("【安全检测】AI 生成了虚假执行结果，已拒绝。reply={}", reply);
-                return "⚠️ 我检测到您的消息可能是想执行某个操作，但我没有真正执行它。\n\n" +
-                       "请使用 / 开头的指令来执行操作，例如：\n" +
-                       "• /updateschedule 18:00 - 修改日程\n" +
-                       "• /schedule 2026-05-30 15:00 会议 - 创建日程\n\n" +
-                       "💡 输入 /help 查看所有可用指令";
+                // 不直接返回警告，而是重新调用AI生成回复，并明确要求不要声称执行操作
+                try {
+                    String prompt = "请用简洁的方式回复用户的问题。重要：不要声称自己执行了任何操作（如'我已修改'、'我已经创建'等），你只是个聊天助手。\n\n用户消息：" + originalText;
+                    String newReply = qwenClient.answerQuestion(prompt);
+                    
+                    // 再次检查新回复
+                    if (containsFakeExecution(newReply)) {
+                        log.warn("【安全检测】重新生成的回复仍包含虚假执行结果，返回默认回复。newReply={}", newReply);
+                        return "抱歉，我暂时无法回复您的消息。";
+                    }
+                    
+                    return newReply;
+                } catch (Exception e) {
+                    log.warn("重新生成回复失败", e);
+                    return "抱歉，我暂时无法回复您的消息。";
+                }
             }
             return reply;
         }
@@ -423,8 +434,22 @@ public class AiUnderstandingService {
             // 【安全检测】检查 AI 生成的回复是否包含虚假执行结果
             if (containsFakeExecution(aiReply)) {
                 log.warn("【安全检测】AI 生成的回复包含虚假执行结果，已拒绝。aiReply={}", aiReply);
-                return "⚠️ 我无法执行您的请求，请使用 / 开头的指令。\n\n" +
-                       "💡 输入 /help 查看所有可用指令";
+                // 不直接返回警告，而是重新调用AI生成回复，并明确要求不要声称执行操作
+                try {
+                    String prompt = "请用简洁的方式回复用户的问题。重要：不要声称自己执行了任何操作（如'我已修改'、'我已经创建'等），你只是个聊天助手。\n\n用户消息：" + originalText;
+                    String newReply = qwenClient.answerQuestion(prompt);
+                    
+                    // 再次检查新回复
+                    if (containsFakeExecution(newReply)) {
+                        log.warn("【安全检测】重新生成的回复仍包含虚假执行结果，返回默认回复。newReply={}", newReply);
+                        return "抱歉，我暂时无法回复您的消息。";
+                    }
+                    
+                    return newReply;
+                } catch (Exception e) {
+                    log.warn("重新生成回复失败", e);
+                    return "抱歉，我暂时无法回复您的消息。";
+                }
             }
             
             return aiReply;
@@ -436,20 +461,42 @@ public class AiUnderstandingService {
 
     /**
      * 检测文本是否包含虚假的执行结果
-     * 如果 AI 谎称执行了某个操作（如"已修改"、"已更新"），返回 true
+     * 如果 AI 谎称执行了某个操作（如"我已修改了"、"我已经创建了"），返回 true
+     * 
+     * 关键：只检测 AI 明确说自己执行了操作的情况，不检测正常的陈述（如"群组已创建成功"）
      */
     private boolean containsFakeExecution(String text) {
         if (text == null) return false;
         
-        String[] fakeKeywords = {
-            "已修改", "已更新", "已创建", "已删除", "已取消", "已更改",
-            "修改成功", "更新成功", "创建成功", "删除成功",
-            "日程已更新", "日程已修改", "任务已创建",
-            "已将", "已经修改", "已经更新", "已经创建"
-        };
+        String lowerText = text.toLowerCase();
         
-        for (String keyword : fakeKeywords) {
-            if (text.contains(keyword)) {
+        // 模式1：AI 说"我已"+ 操作类动词 + "了"
+        // 例如："我已修改了"、"我已经创建了"
+        String[] operationVerbs = {"创建", "修改", "更新", "删除", "取消", "更改", "添加", "移除"};
+        
+        for (String verb : operationVerbs) {
+            if (lowerText.contains("我已" + verb + "了") || 
+                lowerText.contains("我已经" + verb + "了") ||
+                lowerText.contains("我已成功" + verb) ||
+                lowerText.contains("我已经成功" + verb)) {
+                return true;
+            }
+        }
+        
+        // 模式2：AI 说"已经为您" + 操作类动词
+        // 例如："已经为您修改"、"已为您创建"
+        for (String verb : operationVerbs) {
+            if (lowerText.contains("已经为您" + verb) || 
+                lowerText.contains("已为您" + verb)) {
+                return true;
+            }
+        }
+        
+        // 模式3：AI 说"已帮您" + 操作类动词
+        // 例如："已帮您修改"、"已经帮您创建"
+        for (String verb : operationVerbs) {
+            if (lowerText.contains("已帮您" + verb) || 
+                lowerText.contains("已经帮您" + verb)) {
                 return true;
             }
         }

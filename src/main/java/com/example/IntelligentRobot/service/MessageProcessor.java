@@ -826,30 +826,54 @@ public class MessageProcessor {
      * 检测文本中是否包含虚假执行结果关键词
      * 用于防止 AI 生成虚假的执行成功消息
      * 
+     * 关键：只检测 AI 明确说自己执行了操作的情况，不检测正常的执行成功消息
+     * 例如：
+     *   - 虚假："我已创建了群组"、"我已经为您添加了日程"
+     *   - 正常："群组创建成功！"、"日程已添加"
+     * 
      * @param text 要检测的文本
      * @return 如果包含虚假执行结果关键词返回 true，否则返回 false
      */
     private boolean containsFakeExecutionInProcessor(String text) {
         if (text == null) return false;
         
-        // 使用正则表达式检测虚假执行结果
-        // 匹配模式：已/已经/已经 + 动作词（添加、创建、修改、更新、删除、取消等）
-        String[] fakePatterns = {
-            "已.{0,3}(添加|创建|修改|更新|删除|取消|更改)",
-            "已经.{0,3}(添加|创建|修改|更新|删除|取消)",
-            "已成功.{0,3}(添加|创建|修改|更新|删除)",
-            "成功.{0,3}(添加|创建|修改|更新|删除)",
-            "(添加|创建|修改|更新|删除|取消).{0,3}成功",
-            "已为您.{0,3}(添加|创建|修改|更新|删除|取消)",
-            "已经为您.{0,3}(添加|创建|修改|更新|删除|取消)",
-            "日程已",
-            "任务已",
-            "已将",
-            "已帮您"
-        };
+        String lowerText = text.toLowerCase();
         
-        for (String pattern : fakePatterns) {
-            if (java.util.regex.Pattern.compile(pattern).matcher(text).find()) {
+        // 操作类动词
+        String[] operationVerbs = {"创建", "修改", "更新", "删除", "取消", "更改", "添加", "移除"};
+        
+        // 模式1：AI 说"我已" + 操作类动词 + "了"
+        // 例如："我已修改了"、"我已经创建了"
+        for (String verb : operationVerbs) {
+            if (lowerText.contains("我已" + verb + "了") || 
+                lowerText.contains("我已经" + verb + "了")) {
+                return true;
+            }
+        }
+        
+        // 模式2：AI 说"已经为您" + 操作类动词
+        // 例如："已经为您修改"、"已为您创建"
+        for (String verb : operationVerbs) {
+            if (lowerText.contains("已经为您" + verb) || 
+                lowerText.contains("已为您" + verb)) {
+                return true;
+            }
+        }
+        
+        // 模式3：AI 说"已帮您" + 操作类动词
+        // 例如："已帮您修改"、"已经帮您创建"
+        for (String verb : operationVerbs) {
+            if (lowerText.contains("已帮您" + verb) || 
+                lowerText.contains("已经帮您" + verb)) {
+                return true;
+            }
+        }
+        
+        // 模式4：AI 说"我已成功" + 操作类动词（暗示自己执行了操作）
+        // 例如："我已成功创建"、"我已经成功添加"
+        for (String verb : operationVerbs) {
+            if (lowerText.contains("我已成功" + verb) || 
+                lowerText.contains("我已经成功" + verb)) {
                 return true;
             }
         }

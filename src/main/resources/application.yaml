@@ -155,13 +155,20 @@ jira:
 # Prometheus 配置
 prometheus:
   url: ${PROMETHEUS_URL:http://localhost:9090}
-  enabled: ${PROMETHEUS_ENABLED:false}
+  enabled: ${PROMETHEUS_ENABLED:true}
 
 # Grafana 配置
 grafana:
   url: ${GRAFANA_URL:http://localhost:3000}
   api-key: ${GRAFANA_API_KEY:}
-  enabled: ${GRAFANA_ENABLED:false}
+  enabled: ${GRAFANA_ENABLED:true}
+
+# 监控查询配置
+monitor:
+  # PromQL 时间窗口，支持 Prometheus 持续时间格式，如 1m, 5m, 28s, 1h
+  time-window: ${MONITOR_TIME_WINDOW:5m}
+  # 默认服务名（对应 Prometheus 的 job_name）
+  default-service: ${MONITOR_DEFAULT_SERVICE:IntelligentRobot}
 
 # Actuator 监控端点配置
 management:

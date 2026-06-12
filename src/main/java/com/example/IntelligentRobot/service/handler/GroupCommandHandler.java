@@ -83,13 +83,27 @@ public class GroupCommandHandler {
             return "⚠️ 群名长度不能超过50个字符";
         }
 
-        // 二次确认：存储待确认操作
+        // 二次确认：存储待确认操作（同时持久化成员 openId 列表）
         if (confirmService != null) {
             String memberNames = mentions != null ? mentions.stream()
                     .map(m -> m.getName() != null ? m.getName() : m.getKey())
                     .collect(java.util.stream.Collectors.joining("、")) : "";
             String summary = String.format("群名：%s，成员：%s", groupName, memberNames);
-            String token = confirmService.storePendingAction(openId, chatId, "group", args, summary);
+
+            // 将成员 openId 序列化为 JSON，存储到 pendingAction 的 data 字段
+            StringBuilder dataJson = new StringBuilder("[");
+            if (mentions != null) {
+                boolean first = true;
+                for (MessageContent.Mention m : mentions) {
+                    if (m.getId() != null && !m.getId().isEmpty()) {
+                        if (!first) dataJson.append(",");
+                        dataJson.append("\"").append(m.getId()).append("\"");
+                        first = false;
+                    }
+                }
+            }
+            dataJson.append("]");
+            String token = confirmService.storePendingAction(openId, chatId, "group", args, summary, dataJson.toString());
             return String.format("""
                     ⚠️ 敏感操作确认
 
@@ -124,21 +138,31 @@ public class GroupCommandHandler {
             memberOpenIds.add(openId);
         }
 
-        // 处理 @ 的成员（过滤掉 bot 类型，只保留真实用户）
-        if (mentions != null && !mentions.isEmpty()) {
-            for (MessageContent.Mention mention : mentions) {
-                String mentionId = mention.getId();
-                String mentionedType = mention.getMentionedType();
-                // 跳过 bot 和 chat 类型，只处理 user
-                if ("bot".equals(mentionedType) || "chat".equals(mentionedType)) {
-                    continue;
+        // 优先使用确认时持久化的成员 ID（pendingData），避免确认消息缺少 mention 的问题
+        String pendingData = context.getPendingData();
+        if (pendingData != null && !pendingData.isEmpty() && pendingData.startsWith("[")) {
+            log.info("使用持久化成员ID列表: {}", pendingData);
+            List<String> storedIds = parseJsonArray(pendingData);
+            for (String id : storedIds) {
+                if (!id.isEmpty() && !memberOpenIds.contains(id)) {
+                    memberOpenIds.add(id);
                 }
-                if (mentionId == null || mentionId.isEmpty()) {
-                    continue;
-                }
-                // 避免重复添加创建者
-                if (!memberOpenIds.contains(mentionId)) {
-                    memberOpenIds.add(mentionId);
+            }
+        } else {
+            // 降级：从当前消息的 mentions 解析（首次执行或未持久化时）
+            if (mentions != null && !mentions.isEmpty()) {
+                for (MessageContent.Mention mention : mentions) {
+                    String mentionId = mention.getId();
+                    String mentionedType = mention.getMentionedType();
+                    if ("bot".equals(mentionedType) || "chat".equals(mentionedType)) {
+                        continue;
+                    }
+                    if (mentionId == null || mentionId.isEmpty()) {
+                        continue;
+                    }
+                    if (!memberOpenIds.contains(mentionId)) {
+                        memberOpenIds.add(mentionId);
+                    }
                 }
             }
         }
@@ -266,5 +290,41 @@ public class GroupCommandHandler {
 
     private String formatList(List<String> items) {
         return String.join("、", items);
+    }
+
+    /**
+     * 简单解析 JSON 数组字符串（如 ["ou_xxx","ou_yyy"]）
+     * 仅用于解析确认时持久化的成员 ID 列表，不依赖 Jackson
+     */
+    private List<String> parseJsonArray(String json) {
+        List<String> result = new ArrayList<>();
+        if (json == null || !json.startsWith("[") || !json.endsWith("]")) {
+            return result;
+        }
+        String content = json.substring(1, json.length() - 1);
+        if (content.isEmpty()) {
+            return result;
+        }
+        // 格式："item1","item2"
+        int pos = 0;
+        while (pos < content.length()) {
+            if (content.charAt(pos) == '"') {
+                int end = content.indexOf('"', pos + 1);
+                if (end == -1) break;
+                result.add(content.substring(pos + 1, end));
+                pos = end + 1;
+                // 跳过 ","
+                if (pos < content.length() && content.charAt(pos) == ',') {
+                    pos++;
+                }
+                // 跳过逗号后的空格
+                while (pos < content.length() && content.charAt(pos) == ' ') {
+                    pos++;
+                }
+            } else {
+                pos++;
+            }
+        }
+        return result;
     }
 }

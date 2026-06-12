@@ -174,6 +174,7 @@ public class MessageDispatcher {
                 confirmContext.setTaskId(taskId);
                 confirmContext.setConfirmed(true);
                 confirmContext.setConfirmToken(token);
+                confirmContext.setPendingData(action.getData());
                 try {
                     Object result = commandRegistry.execute(action.getCommandName(), confirmContext);
                     return result != null ? result.toString() : null;

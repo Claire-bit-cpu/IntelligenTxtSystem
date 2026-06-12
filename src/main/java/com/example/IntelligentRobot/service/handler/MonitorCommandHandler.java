@@ -4,11 +4,12 @@ import com.example.IntelligentRobot.annotation.Command;
 import com.example.IntelligentRobot.client.MonitorClient;
 import com.example.IntelligentRobot.dto.CommandContext;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
  * 监控指令处理器（新框架版本）
- * 指令格式：/monitor <服务名>
+ * 指令格式：/monitor [服务名]
  */
 @Component
 public class MonitorCommandHandler {
@@ -16,24 +17,21 @@ public class MonitorCommandHandler {
     @Autowired(required = false)
     private MonitorClient monitorClient;
 
+    /** 默认服务名，对应 Prometheus 的 job_name */
+    @Value("${monitor.default-service:${spring.application.name:IntelligentRobot}}")
+    private String defaultService;
+
     @Command(
         name = "monitor",
         description = "查询服务健康状态",
-        usage = "/monitor <服务名>"
+        usage = "/monitor [服务名]"
     )
     public String handle(CommandContext context) {
         String service = context.getArgs().trim();
 
+        // 如果用户没有输入服务名，使用默认服务名
         if (service.isEmpty()) {
-            return """
-                    ❌ 用法：/monitor <服务名>
-                    
-                    📋 示例：
-                    /monitor my-service
-                    /monitor backend-api
-                    
-                    💡 查询服务的健康状态、错误率、请求速率等指标
-                    """;
+            service = defaultService;
         }
 
         if (monitorClient == null) {

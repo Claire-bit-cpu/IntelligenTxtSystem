@@ -90,6 +90,12 @@ public class CommandContext {
     private String confirmToken;
 
     /**
+     * 确认操作的附加数据（二次确认机制）
+     * 存储于 Redis，确认时通过 ConfirmService.PendingAction.getData() 回传
+     */
+    private String pendingData;
+
+    /**
      * 获取参数数组（按空格分割）
      */
     public String[] getArgsArray() {
