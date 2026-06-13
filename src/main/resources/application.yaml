@@ -220,7 +220,7 @@ notification.batch:
 search:
   index-path: ${SEARCH_INDEX_PATH:./search-index.db}
   sync-interval-ms: ${SEARCH_SYNC_INTERVAL_MS:7200000}  # 全量同步间隔，默认2小时
-  max-sync-messages-per-chat: ${SEARCH_MAX_SYNC_MESSAGES:500}  # 每个群聊最多同步消息数
+  max-sync-messages-per-chat: ${SEARCH_MAX_SYNC_MESSAGES:2000}  # 每个群聊最多同步消息数（从500改为2000，以获取更早的文件）
   # 启动后延迟执行首次同步（毫秒），默认60000（60秒）
   startup-delay-ms: ${SEARCH_STARTUP_DELAY_MS:60000}
   # API调用延迟（毫秒），避免频繁调用API，默认100

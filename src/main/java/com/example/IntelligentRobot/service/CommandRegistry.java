@@ -99,7 +99,8 @@ public class CommandRegistry {
             // 使用新的 hasPermission(context, level) 方法，同时支持 open_id 和 user_id
             log.info("指令 {} 需要鉴权（级别: {}），检查用户权限", commandName, requiredLevel);
 
-            if (!authService.hasPermission(context, requiredLevel)) {
+            // 明确指定调用 hasPermission(CommandContext, PermissionLevel) 方法，避免歧义
+            if (!authService.hasPermission((CommandContext) context, requiredLevel)) {
                 String permissionDeniedMsg = authService.checkPermissionWithMessage(context.getUserId(), requiredLevel);
                 log.warn("权限拒绝: 用户无权执行指令 {}（需要 {} 权限）, userIds={}", 
                         commandName, requiredLevel, getContextUserIds(context));

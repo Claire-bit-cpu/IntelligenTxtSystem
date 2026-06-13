@@ -322,36 +322,9 @@ public class SearchSyncScheduler {
                             itemCount++;
                         }
 
-                        // 处理文本消息（索引正文内容）
-                        if ("text".equals(msgType)) {
-                            Map<String, Object> contentMap = parseMessageContent(item);
-                            if (contentMap != null) {
-                                String textContent = (String) contentMap.getOrDefault("text", "");
-                                textContent = cleanText(textContent);
-                                if (textContent.isEmpty()) continue;
-
-                                String senderType = "";
-                                Object senderObj = item.get("sender");
-                                if (senderObj instanceof Map senderMap) {
-                                    senderType = (String) senderMap.getOrDefault("sender_type", "");
-                                }
-
-                                String senderId = "";
-                                if (senderObj instanceof Map senderMap) {
-                                    senderId = (String) senderMap.getOrDefault("id", "");
-                                }
-
-                                String extra = String.format("{\"sender_type\":\"%s\",\"chat_name\":\"%s\"}",
-                                        senderType, escapeJson(chatName));
-
-                                String formattedTime = formatTimestamp(createTime);
-                                docs.add(new SearchIndexService.IndexDoc("消息", textContent, "group_text", messageId, chatId, extra, formattedTime));
-                                itemCount++;
-                            }
-                        }
                     }
 
-                    log.debug("群聊[{}]共索引 {} 条内容", chatId, itemCount);
+                    log.info("群聊[{}]同步完成，共索引 {} 条文件类内容（从消息历史）", chatId, itemCount);
                 } catch (Exception e) {
                     log.warn("同步群聊失败 chatId={}", chatId, e);
                 }
