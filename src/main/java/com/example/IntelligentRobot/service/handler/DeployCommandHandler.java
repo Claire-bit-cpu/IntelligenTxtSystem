@@ -179,9 +179,6 @@ public class DeployCommandHandler {
         
         String normalizedEnv = env.toLowerCase();
 
-        // 更新任务状态：开始处理部署请求
-        TaskContext.updateProgress(10, "开始处理部署请求");
-
         if (normalizedEnv.isEmpty()) {
             return buildDeployHelp();
         }
@@ -195,7 +192,6 @@ public class DeployCommandHandler {
             context.setFilledParam("deploy_target", target);
             String token = confirmService.storePendingAction(openId, chatId, "deploy",
                     normalizedEnv + "|" + target, summary);
-            TaskContext.updateProgress(100, "等待用户确认");
             return String.format("""
                     ⚠️ 敏感操作确认
 
@@ -223,35 +219,38 @@ public class DeployCommandHandler {
     private String executeDeploy(CommandContext context, String env, String target, String operator, String now) {
         String normalizedEnv = env.toLowerCase();
 
-        // 发送部署任务开始消息
+        // 发送"任务已触发"通知
         String taskId = TaskContext.getTaskId();
         String chatId = context.getChatId();
         if (taskId != null && feishuClient != null && chatId != null) {
             try {
-                String startMsg = buildDeployStartText(taskId, normalizedEnv, target);
-                feishuClient.sendText(chatId, startMsg);
-                log.info("部署任务开始消息已发送: taskId={}, chatId={}", taskId, chatId);
-            } catch (Exception e) {
-                log.warn("发送部署任务开始消息失败: taskId={}, error={}", taskId, e.getMessage());
-            }
+                String notification = String.format("""
+                            🚀 部署任务已触发
 
-            // 标记此为部署任务，避免发送慢任务完成通知
-            try {
-                AsyncTaskStatus.setTaskType(taskId, "DEPLOY");
-                log.info("已标记任务为部署任务: taskId={}", taskId);
+                            🆔 任务ID: `%s`
+                            📦 环境: %s
+                            📡 目标: %s
+                            👤 操作者: %s
+                            🕐 触发时间: %s
+
+                            ⏳ 正在处理中，请稍候...
+                            """, 
+                            taskId.substring(0, 8) + "...",
+                            normalizedEnv,
+                            target,
+                            operator,
+                            now);
+                
+                feishuClient.sendText(chatId, notification);
+                log.info("部署任务已触发通知已发送: taskId={}, chatId={}", taskId, chatId);
             } catch (Exception e) {
-                log.warn("标记部署任务类型失败: taskId={}, error={}", taskId, e.getMessage());
+                log.warn("发送部署任务已触发通知失败: taskId={}, error={}", taskId, e.getMessage());
             }
         }
-
-        // 更新任务状态：验证环境配置
-        TaskContext.updateProgress(20, "验证部署环境配置");
 
         // 如果配置了 GitHub，实际触发部署
         if (gitHubClient != null && gitHubClient.isConfigured()) {
             try {
-                // 关键节点1：30% - 开始触发部署
-                TaskContext.updateProgress(30, "开始触发部署");
 
                 DeployConfig config = getGitHubDeployConfig(normalizedEnv);
 
@@ -304,9 +303,6 @@ public class DeployCommandHandler {
                         callbackUrl  // 传入回调地址
                 );
 
-                // 更新任务状态：部署已触发，飞书通知由工作流直接发送
-                TaskContext.updateProgress(80, "部署已触发，飞书通知将由 GitHub Actions 直接发送");
-
                 String targetInfo = "default".equals(target) ? "默认" : target;
                 String successMsg = String.format("""
                         🚀 部署已触发
@@ -326,13 +322,9 @@ public class DeployCommandHandler {
                            config.workflowId(), operator, now, deployId,
                            config.owner(), config.repo());
                 
-                // 发送降噪通知（触发成功通知）
-                sendDeployNotification(context, successMsg, normalizedEnv);
-                
                 return successMsg;
             } catch (Exception e) {
                 log.error("GitHub Actions 部署失败", e);
-                TaskContext.updateProgress(0, "部署失败: " + e.getMessage());
                 
                 String errorMsg = String.format("""
                         ❌ 部署失败
@@ -346,8 +338,6 @@ public class DeployCommandHandler {
                         💡 请检查 GitHub 配置
                         """, normalizedEnv, target, operator, e.getMessage());
                 
-                // 发送降噪通知
-                sendDeployNotification(context, errorMsg, normalizedEnv);
                 return errorMsg;
             }
         }
@@ -402,24 +392,6 @@ public class DeployCommandHandler {
                 💡 当前为模拟模式。
                 如需接入真实部署，请配置 GitHub Actions 集成。
                 """, normalizedEnv, envLabel, targetInfo, operator, now);
-    }
-
-    /**
-     * 构建部署任务开始文本消息
-     */
-    private String buildDeployStartText(String taskId, String env, String target) {
-        String taskIdShort = taskId.length() > 8 ? taskId.substring(0, 8) + "..." : taskId;
-        String timestamp = java.time.LocalDateTime.now()
-                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        return String.format("""
-                🚀 部署任务已开始
-
-                🆔 任务ID: %s
-                📦 环境: %s
-                📡 目标: %s
-                📝 状态: 初始化中...
-                🕐 开始时间: %s
-                """, taskIdShort, env, target, timestamp);
     }
 
     /**
@@ -500,32 +472,5 @@ public class DeployCommandHandler {
         String timestamp = LocalDateTime.now(ZONE).format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
         String random = java.util.UUID.randomUUID().toString().substring(0, 8);
         return String.format("deploy-%s-%s-%s", env, timestamp, random);
-    }
-
-    /**
-     * 发送部署通知（带智能降噪）
-     */
-    private void sendDeployNotification(CommandContext context, String message, String env) {
-        String chatId = context.getChatId();
-        if (chatId == null || chatId.isEmpty()) {
-            return;
-        }
-
-        try {
-            if (notificationService != null) {
-                // 使用 DEPLOY 事件类型，启用智能降噪（去重 + 合并）
-                boolean success = notificationService.sendNotification(chatId, "DEPLOY", message);
-                if (success) {
-                    log.info("部署通知已发送（带降噪）: env={}, chatId={}", env, maskOpenId(chatId));
-                } else {
-                    log.info("部署通知被降噪拦截（去重或合并中）: env={}", env);
-                }
-            } else {
-                // NotificationService 不可用，降级处理
-                log.warn("NotificationService 不可用，部署通知未启用智能降噪");
-            }
-        } catch (Exception e) {
-            log.error("发送部署通知失败", e);
-        }
     }
 }

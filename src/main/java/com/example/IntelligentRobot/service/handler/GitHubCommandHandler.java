@@ -1,17 +1,22 @@
 package com.example.IntelligentRobot.service.handler;
 
 import com.example.IntelligentRobot.annotation.Command;
+import com.example.IntelligentRobot.client.FeishuClient;
 import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.dto.CommandContext;
+import com.example.IntelligentRobot.task.AsyncTaskStatus;
+import com.example.IntelligentRobot.task.TaskContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -33,6 +38,12 @@ public class GitHubCommandHandler {
 
     @Autowired(required = false)
     private GitHubClient gitHubClient;
+
+    /**
+     * 飞书客户端（用于发送任务通知）
+     */
+    @Autowired(required = false)
+    private FeishuClient feishuClient;
 
     /**
      * 仓库别名映射（别名 -> owner/repo）
@@ -72,6 +83,31 @@ public class GitHubCommandHandler {
     public String handle(CommandContext context) {
         String githubCmd = context.getArgs().trim();
         String senderOpenId = context.getSender() != null ? context.getSender().getOpenId() : "系统";
+
+        // 创建任务并发送"任务已触发"通知
+        String taskId = UUID.randomUUID().toString();
+        TaskContext.setTaskId(taskId);
+        
+        String chatId = context.getChatId();
+        if (chatId != null && !chatId.isEmpty() && feishuClient != null) {
+            String notification = String.format("""
+                        🔧 GitHub Actions 任务已触发
+
+                        🆔 任务ID: `%s`
+                        📝 命令: %s
+                        👤 操作者: %s
+                        🕐 触发时间: %s
+
+                        ⏳ 正在处理中，请稍候...
+                        """, 
+                        taskId.substring(0, 8) + "...",
+                        githubCmd,
+                        senderOpenId,
+                        LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            
+            feishuClient.sendText(chatId, notification);
+            log.info("GitHub Actions 任务已触发通知已发送: taskId={}, chatId={}", taskId, chatId);
+        }
 
         if (githubCmd.isEmpty()) {
             return buildGitHubHelp();

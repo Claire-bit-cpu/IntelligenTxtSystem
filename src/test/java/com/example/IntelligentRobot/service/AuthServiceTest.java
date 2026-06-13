@@ -99,7 +99,7 @@ public class AuthServiceTest {
         assertTrue(authService.hasPermission("ou_admin1", PermissionLevel.NONE));
         assertTrue(authService.hasPermission("ou_dev1", PermissionLevel.NONE));
         assertTrue(authService.hasPermission("ou_unknown", PermissionLevel.NONE));
-        assertTrue(authService.hasPermission(null, PermissionLevel.NONE));
+        assertTrue(authService.hasPermission((String) null, PermissionLevel.NONE));
 
         // DEVELOPER 级别：开发者和管理员有权限
         assertTrue(authService.hasPermission("ou_admin1", PermissionLevel.DEVELOPER));

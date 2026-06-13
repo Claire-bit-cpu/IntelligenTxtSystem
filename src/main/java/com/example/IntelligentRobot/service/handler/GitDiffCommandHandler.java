@@ -5,15 +5,19 @@ import com.example.IntelligentRobot.client.FeishuClient;
 import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.config.GitHubConfig;
 import com.example.IntelligentRobot.dto.CommandContext;
+import com.example.IntelligentRobot.task.AsyncTaskStatus;
+import com.example.IntelligentRobot.task.TaskContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Git 提交差异查询指令处理器（新框架版本）
@@ -46,6 +50,29 @@ public class GitDiffCommandHandler {
     public String handle(CommandContext context) {
         String args = context.getArgs().trim();
         String[] parts = args.split("\\s+");
+        
+        // 创建任务并发送"任务已触发"通知
+        String taskId = UUID.randomUUID().toString();
+        TaskContext.setTaskId(taskId);
+        
+        String chatId = context.getChatId();
+        if (chatId != null && !chatId.isEmpty()) {
+            String notification = String.format("""
+                        📝 Git 差异查询任务已触发
+
+                        🆔 任务ID: `%s`
+                        📝 参数: %s
+                        🕐 触发时间: %s
+
+                        ⏳ 正在处理中，请稍候...
+                        """, 
+                        taskId.substring(0, 8) + "...",
+                        args,
+                        LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            
+            feishuClient.sendText(chatId, notification);
+            log.info("Git 差异查询任务已触发通知已发送: taskId={}, chatId={}", taskId, chatId);
+        }
         
         if (parts.length < 2) {
             return "❌ 用法：/gitdiff <仓库别名> <commit_sha>\n示例：/gitdiff frontend abc12345";

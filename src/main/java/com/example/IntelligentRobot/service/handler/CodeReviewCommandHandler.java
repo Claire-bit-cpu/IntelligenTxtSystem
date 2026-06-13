@@ -1,6 +1,7 @@
 package com.example.IntelligentRobot.service.handler;
 
 import com.example.IntelligentRobot.annotation.Command;
+import com.example.IntelligentRobot.client.FeishuClient;
 import com.example.IntelligentRobot.client.GitHubClient;
 import com.example.IntelligentRobot.config.GitHubConfig;
 import com.example.IntelligentRobot.dto.CommandContext;
@@ -38,6 +39,7 @@ public class CodeReviewCommandHandler {
     private final TaskStatusService taskStatusService;
     private final TaskMonitorService taskMonitorService;
     private final NotificationService notificationService;
+    private final FeishuClient feishuClient;
 
     // /review frontend 42 或 /review frontend commit abc123
     private static final Pattern REVIEW_ALIAS_PATTERN =
@@ -56,13 +58,15 @@ public class CodeReviewCommandHandler {
                             GitHubConfig gitHubConfig,
                             TaskStatusService taskStatusService,
                             TaskMonitorService taskMonitorService,
-                            NotificationService notificationService) {
+                            NotificationService notificationService,
+                            FeishuClient feishuClient) {
         this.codeReviewService = codeReviewService;
         this.gitHubClient = gitHubClient;
         this.gitHubConfig = gitHubConfig;
         this.taskStatusService = taskStatusService;
         this.taskMonitorService = taskMonitorService;
         this.notificationService = notificationService;
+        this.feishuClient = feishuClient;
     }
 
     @Command(
@@ -74,26 +78,20 @@ public class CodeReviewCommandHandler {
     public String handle(CommandContext context) {
         String args = context.getArgs().trim();
 
-        // 创建任务并显示任务面板
-        createTaskAndShowPanel(context, args);
+        // 创建任务并发送"任务已触发"通知
+        createTaskAndSendNotification(context, args);
 
-        // 更新任务状态：开始处理
-        TaskContext.updateProgress(10, "开始处理代码审查请求");
-
-        // 构建返回消息（包含任务面板）
+        // 构建返回消息
         StringBuilder response = new StringBuilder();
-        response.append(buildTaskPanel());
-        response.append("\n---\n\n");
+        response.append("🔍 **代码审查任务已触发**\n\n");
 
         if (args.isEmpty()) {
-            TaskContext.updateProgress(0, "参数为空，显示帮助");
             response.append(buildHelpText());
             return response.toString();
         }
 
         // 检查是否配置了 GitHub Token
         if (!gitHubClient.isConfigured()) {
-            TaskContext.updateProgress(0, "代码审查功能未配置");
             response.append("""
                     ⚠️ 代码审查功能未配置
 
@@ -103,107 +101,31 @@ public class CodeReviewCommandHandler {
             return response.toString();
         }
 
-        // 更新任务状态：正在解析参数
-        TaskContext.updateProgress(30, "正在解析审查参数");
-
         // 尝试匹配新命令格式：/review <别名> <PR号或commit>
         Matcher reviewMatcher = REVIEW_ALIAS_PATTERN.matcher(args);
         if (reviewMatcher.find()) {
-            // 更新任务状态：正在执行代码审查
-            TaskContext.updateProgress(50, "正在执行代码审查（AI 分析中）");
             String result = handleReviewAlias(reviewMatcher);
-            // 更新任务状态：审查完成
-            TaskContext.updateProgress(100, "代码审查完成");
             response.append(result);
-            
-            // 发送降噪通知
-            sendReviewNotification(context, result, args);
-            
             return response.toString();
         }
 
         // 尝试匹配旧命令格式：/cr owner/repo PR号
         Matcher crMatcher = CR_PATTERN.matcher(args);
         if (crMatcher.find()) {
-            // 更新任务状态：正在执行代码审查
-            TaskContext.updateProgress(50, "正在执行代码审查（AI 分析中）");
             String result = handleCrCommand(crMatcher);
-            // 更新任务状态：审查完成
-            TaskContext.updateProgress(100, "代码审查完成");
             response.append(result);
-            
-            // 发送降噪通知
-            sendReviewNotification(context, result, args);
-            
             return response.toString();
         }
 
         // 命令格式错误，显示帮助
-        TaskContext.updateProgress(0, "参数格式错误");
         response.append(buildHelpText());
         return response.toString();
     }
     
     /**
-     * 构建任务面板文本
+     * 创建任务并发送"任务已触发"通知
      */
-    private String buildTaskPanel() {
-        if (currentTaskId == null) {
-            return "";
-        }
-        
-        AsyncTaskStatus task = taskStatusService.get(currentTaskId);
-        if (task == null) {
-            return "";
-        }
-        
-        StringBuilder sb = new StringBuilder();
-        sb.append("🔍 **代码审查任务已创建**\n\n");
-        sb.append("📋 **任务信息**\n");
-        sb.append(String.format("任务ID: `%s`\n", task.getTaskId().substring(0, 8) + "..."));
-        sb.append(String.format("状态: %s\n", getStatusText(task.getStatus())));
-        sb.append(String.format("状态信息: %s\n", task.getStatusMsg() != null ? task.getStatusMsg() : "-"));
-        
-        if (task.getCreatedAt() != null) {
-            sb.append(String.format("创建时间: %s\n", task.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
-        }
-        
-        sb.append("\n💡 提示: 使用 `/task ").append(task.getTaskId()).append("` 查看任务详情\n");
-        
-        return sb.toString();
-    }
-    
-    /**
-     * 获取状态文本
-     */
-    private String getStatusText(AsyncTaskStatus.Status status) {
-        if (status == null) return "⏳ 未知";
-        return switch (status) {
-            case PENDING -> "⏳ 待处理";
-            case PROCESSING -> "🔄 处理中";
-            case COMPLETED -> "✅ 已完成";
-            case FAILED -> "❌ 失败";
-        };
-    }
-    
-    /**
-     * 构建进度条
-     */
-    private String buildProgressBar(int progress) {
-        int bars = progress / 10;
-        StringBuilder sb = new StringBuilder();
-        sb.append("[");
-        for (int i = 0; i < 10; i++) {
-            sb.append(i < bars ? "█" : "░");
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    /**
-     * 创建任务并展示任务面板
-     */
-    private void createTaskAndShowPanel(CommandContext context, String args) {
+    private void createTaskAndSendNotification(CommandContext context, String args) {
         try {
             // 创建任务
             String taskId = UUID.randomUUID().toString();
@@ -224,7 +146,26 @@ public class CodeReviewCommandHandler {
             
             // 更新 TaskContext
             TaskContext.setTaskId(taskId);
-            TaskContext.updateProgress(5, "任务已创建，准备执行代码审查");
+            
+            // 发送"任务已触发"通知
+            String chatId = context.getChatId();
+            if (chatId != null && !chatId.isEmpty()) {
+                String notification = String.format("""
+                        🔍 代码审查任务已触发
+
+                        🆔 任务ID: `%s`
+                        📝 参数: %s
+                        🕐 触发时间: %s
+
+                        ⏳ 正在处理中，请稍候...
+                        """, 
+                        taskId.substring(0, 8) + "...",
+                        args,
+                        LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                
+                feishuClient.sendText(chatId, notification);
+                log.info("代码审查任务已触发通知已发送: taskId={}, chatId={}", taskId, chatId);
+            }
             
             log.info("代码审查任务已创建，任务ID: {}", taskId);
             
@@ -303,10 +244,6 @@ public class CodeReviewCommandHandler {
      */
     private String reviewPullRequest(String owner, String repo, int prNumber) {
         try {
-            // 更新任务状态：正在执行代码审查
-            TaskContext.updateProgress(50, "正在执行代码审查（AI 分析中）");
-            taskMonitorService.triggerPush();
-            
             // 调用审查服务
             com.example.IntelligentRobot.dto.CodeReviewResult result =
                     codeReviewService.reviewPullRequest(owner, repo, prNumber);
@@ -317,16 +254,9 @@ public class CodeReviewCommandHandler {
             // 格式化结果
             String target = String.format("PR #%d (%s/%s)", prNumber, owner, repo);
             String formattedResult = codeReviewService.formatReviewResult(result, target, prUrl);
-
-            // 更新任务状态：审查完成
-            TaskContext.updateProgress(100, "代码审查完成");
-            taskMonitorService.triggerPush();
             
             return formattedResult;
         } catch (Exception e) {
-            // 更新任务状态：审查失败
-            TaskContext.updateProgress(0, "代码审查失败: " + e.getMessage());
-            taskMonitorService.triggerPush();
             throw e;
         }
     }
@@ -336,10 +266,6 @@ public class CodeReviewCommandHandler {
      */
     private String reviewCommit(String owner, String repo, String sha) {
         try {
-            // 更新任务状态：正在执行代码审查
-            TaskContext.updateProgress(50, "正在执行代码审查（AI 分析中）");
-            taskMonitorService.triggerPush();
-            
             // 调用审查服务
             com.example.IntelligentRobot.dto.CodeReviewResult result =
                     codeReviewService.reviewCommit(owner, repo, sha);
@@ -351,16 +277,9 @@ public class CodeReviewCommandHandler {
             String shortSha = sha.length() >= 7 ? sha.substring(0, 7) : sha;
             String target = String.format("Commit %s (%s/%s)", shortSha, owner, repo);
             String formattedResult = codeReviewService.formatReviewResult(result, target, commitUrl);
-
-            // 更新任务状态：审查完成
-            TaskContext.updateProgress(100, "代码审查完成");
-            taskMonitorService.triggerPush();
             
             return formattedResult;
         } catch (Exception e) {
-            // 更新任务状态：审查失败
-            TaskContext.updateProgress(0, "代码审查失败: " + e.getMessage());
-            taskMonitorService.triggerPush();
             throw e;
         }
     }
@@ -384,34 +303,5 @@ public class CodeReviewCommandHandler {
                     使用 AI 自动分析代码，给出审查建议
                     包含：评分、问题列表、修改建议
                     """;
-    }
-
-    /**
-     * 发送代码审查通知（带智能降噪）
-     */
-    private void sendReviewNotification(CommandContext context, String message, String args) {
-        String chatId = context.getChatId();
-        if (chatId == null || chatId.isEmpty()) {
-            return;
-        }
-
-        try {
-            if (notificationService != null) {
-                // 使用 CODE_REVIEW 事件类型，启用智能降噪（去重 + 合并）
-                boolean success = notificationService.sendNotification(chatId, "CODE_REVIEW", 
-                        "🔍 代码审查完成\n\n" + message);
-                if (success) {
-                    log.info("代码审查通知已发送（带降噪）: args={}, chatId={}", args, 
-                            chatId.substring(0, Math.min(8, chatId.length())) + "***");
-                } else {
-                    log.info("代码审查通知被降噪拦截（去重或合并中）: args={}", args);
-                }
-            } else {
-                // NotificationService 不可用，降级处理
-                log.warn("NotificationService 不可用，代码审查通知未启用智能降噪");
-            }
-        } catch (Exception e) {
-            log.error("发送代码审查通知失败", e);
-        }
     }
 }

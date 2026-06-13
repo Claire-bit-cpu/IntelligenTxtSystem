@@ -151,9 +151,6 @@ public class MessageProcessor {
             
             log.info("解析成功: chatId={}, messageId={}", chatId, messageId);
 
-            // ===== 更新任务状态：开始处理 (10%) =====
-            updateMessageTaskProgress(taskId, 10, "消息解析完成，开始处理");
-
             // ===== 群聊@检查：只有群聊且未@机器人时，直接返回 =====
             if (isGroupChat(chatId)) {
                 // 从 message.mentions 解析 mentions
@@ -191,9 +188,6 @@ public class MessageProcessor {
 
             log.info("解析后 text: {}, mentions 数量: {}", text,
                     mentions != null ? mentions.size() : "null");
-
-            // ===== 更新任务状态：核心逻辑执行中 (50%) =====
-            updateMessageTaskProgress(taskId, 50, "正在分发处理指令");
 
             if (text == null || text.isEmpty()) {
                 return;
@@ -250,30 +244,11 @@ public class MessageProcessor {
             if (confirmReply != null) {
                 feishuClient.sendText(chatId, confirmReply);
                 // 确认消息处理完毕，跳过后续分发
-                updateMessageTaskProgress(taskId, 100, "确认操作处理完成");
-                if (taskId != null && !taskId.isEmpty()) {
-                    // 计算耗时，只有慢任务才推送完成通知
-                    AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-                    long duration = 0;
-                    if (task != null && task.getCreatedAt() != null) {
-                        duration = java.time.Duration.between(task.getCreatedAt(), java.time.LocalDateTime.now()).toMillis();
-                        AsyncTaskStatus.setDuration(taskId, duration);
-                    }
-                    AsyncTaskStatus.markCompleted(taskId, "确认操作处理完成");
-                    if (duration >= slowTaskThresholdMs) {
-                        sendSlowTaskCompleteNotification(taskId, duration, chatId);
-                    } else {
-                        log.info("确认操作耗时较短({}ms < {}ms)，不推送通知: taskId={}", duration, slowTaskThresholdMs, taskId);
-                    }
-                }
                 return;
             }
 
             // 分发处理（传递 cleanedText、mentions 和 taskId）
             String reply = messageDispatcher.dispatch(cleanedText, sender, chatId, mentions, taskId);
-
-            // ===== 更新任务状态：结果格式化 (80%) =====
-            updateMessageTaskProgress(taskId, 80, "指令处理完成，准备发送回复");
 
             // 发送回复（添加安全检测）
             if (reply != null && reply.startsWith("__CARD__")) {
@@ -310,29 +285,10 @@ public class MessageProcessor {
                 );
             }
 
-            // ===== 更新任务状态：完成 (100%) =====
-            updateMessageTaskProgress(taskId, 100, "回复已发送，任务完成");
-
-            // 标记任务完成并计算耗时
+            // 标记任务完成
             if (taskId != null && !taskId.isEmpty()) {
                 try {
-                    AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-                    long duration = 0;
-                    if (task != null && task.getCreatedAt() != null) {
-                        duration = java.time.Duration.between(task.getCreatedAt(), java.time.LocalDateTime.now()).toMillis();
-                        AsyncTaskStatus.setDuration(taskId, duration);
-                    }
                     AsyncTaskStatus.markCompleted(taskId, "处理成功");
-                    AsyncTaskStatus.appendLog(taskId, "任务完成");
-
-                    // 只有慢任务（耗时超过阈值）才推送完成通知
-                    if (duration >= slowTaskThresholdMs) {
-                        // 慢任务：发送完成通知
-                        sendSlowTaskCompleteNotification(taskId, duration, chatId);
-                    } else {
-                        // 快任务：不推送通知，只清理状态
-                        log.info("任务耗时较短({}ms < {}ms)，不推送完成通知: taskId={}", duration, slowTaskThresholdMs, taskId);
-                    }
                 } catch (Exception ex) {
                     log.warn("标记任务完成时出错: taskId={}", taskId, ex);
                 }
@@ -344,84 +300,10 @@ public class MessageProcessor {
             if (taskId != null && !taskId.isEmpty()) {
                 try {
                     AsyncTaskStatus.markFailed(taskId, e.getMessage());
-                    AsyncTaskStatus.appendLog(taskId, "任务失败: " + e.getMessage());
-
-                    // 计算耗时，只有慢任务才推送失败通知
-                    AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-                    long duration = 0;
-                    if (task != null && task.getCreatedAt() != null) {
-                        duration = java.time.Duration.between(task.getCreatedAt(), java.time.LocalDateTime.now()).toMillis();
-                    }
-                    if (duration >= slowTaskThresholdMs) {
-                        sendSlowTaskFailedNotification(taskId, e.getMessage(), chatId);
-                    } else {
-                        log.info("任务耗时较短({}ms < {}ms)，不推送失败通知: taskId={}", duration, slowTaskThresholdMs, taskId);
-                    }
                 } catch (Exception ex) {
                     log.warn("标记任务失败状态时出错: taskId={}", taskId, ex);
                 }
             }
-        }
-    }
-
-    /**
-     * 发送慢任务完成通知（只有耗时超过阈值的任务才调用）
-     * 只发送文本消息，不发卡片
-     * 部署任务（taskType="DEPLOY"）不发送此通知
-     */
-    private void sendSlowTaskCompleteNotification(String taskId, long duration, String chatId) {
-        try {
-            // 检查任务类型，如果是部署任务则不发送通知
-            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-            if (task != null && "DEPLOY".equals(task.getTaskType())) {
-                log.info("部署任务完成，不发送慢任务完成通知: taskId={}", taskId);
-                return;
-            }
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("✅ 任务完成\n\n");
-            sb.append("🆔 任务ID: `").append(taskId).append("`\n");
-            sb.append("📊 最终进度: 100%\n");
-            sb.append("⏱ 耗时: ").append(duration).append("ms\n");
-
-            String finalText = sb.toString();
-            String newMessageId = feishuClient.sendText(chatId, finalText);
-            if (newMessageId != null) {
-                AsyncTaskStatus.setMessageId(taskId, newMessageId);
-                log.info("已发送慢任务完成通知: taskId={}, chatId={}, duration={}ms", taskId, chatId, duration);
-            }
-        } catch (Exception e) {
-            log.warn("发送慢任务完成通知失败: taskId={}, error={}", taskId, e.getMessage());
-        }
-    }
-
-    /**
-     * 发送慢任务失败通知（只有耗时超过阈值的任务才调用）
-     * 只发送文本消息，不发卡片
-     * 部署任务（taskType="DEPLOY"）不发送此通知
-     */
-    private void sendSlowTaskFailedNotification(String taskId, String errorMsg, String chatId) {
-        try {
-            // 检查任务类型，如果是部署任务则不发送通知
-            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-            if (task != null && "DEPLOY".equals(task.getTaskType())) {
-                log.info("部署任务失败，不发送慢任务失败通知: taskId={}", taskId);
-                return;
-            }
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("❌ 任务失败\n\n");
-            sb.append("🆔 任务ID: `").append(taskId).append("`\n");
-            sb.append("📝 错误: ").append(errorMsg != null ? errorMsg : "未知错误").append("\n");
-
-            String finalText = sb.toString();
-            String newMessageId = feishuClient.sendText(chatId, finalText);
-            if (newMessageId != null) {
-                AsyncTaskStatus.setMessageId(taskId, newMessageId);
-                log.info("已发送慢任务失败通知: taskId={}, chatId={}", taskId, chatId);
-            }
-        } catch (Exception e) {
-            log.warn("发送慢任务失败通知失败: taskId={}, error={}", taskId, e.getMessage());
         }
     }
 
@@ -433,230 +315,6 @@ public class MessageProcessor {
      */
     private boolean isGroupChat(String chatId) {
         return chatId != null && chatId.startsWith(GROUP_CHAT_PREFIX);
-    }
-
-    /**
-     * 更新任务进度（辅助方法，避免重复代码）
-     * @param taskId 任务ID（可为null）
-     * @param progress 进度（0-100）
-     * @param statusMsg 状态描述信息
-     */
-    private void updateMessageTaskProgress(String taskId, int progress, String statusMsg) {
-        if (taskId == null || taskId.isEmpty()) {
-            return;
-        }
-        try {
-            AsyncTaskStatus.updateTaskProgress(taskId, progress, statusMsg);
-            AsyncTaskStatus.appendLog(taskId, statusMsg + " (" + progress + "%)");
-            // 同时更新飞书侧消息（带频率控制，避免飞书API限流）
-            updateFeishuMessageThrottled(taskId, progress, statusMsg);
-        } catch (Exception e) {
-            log.warn("更新任务进度失败: taskId={}, error={}", taskId, e.getMessage());
-        }
-    }
-
-    /**
-     * 飞书消息更新频率控制（内存缓存，key=taskId）
-     * 同一任务最多每 2 秒更新一次飞书消息，避免触发限流
-     */
-    private final ConcurrentHashMap<String, Long> lastFeishuUpdateTime = new ConcurrentHashMap<>();
-    private static final long FEISHU_UPDATE_INTERVAL_MS = 2000; // 2秒
-
-    private void updateFeishuMessageThrottled(String taskId, int progress, String statusMsg) {
-        long now = System.currentTimeMillis();
-        Long lastTime = lastFeishuUpdateTime.get(taskId);
-        if (lastTime != null && (now - lastTime) < FEISHU_UPDATE_INTERVAL_MS) {
-            return; // 距上次更新不足2秒，跳过
-        }
-        // 进度达到关键节点时强制更新（不受频率限制）
-        if (progress >= 100 || progress == 0 || statusMsg.contains("失败")) {
-            // 强制更新，清除时间限制
-        }
-        lastFeishuUpdateTime.put(taskId, now);
-        updateFeishuMessage(taskId, progress, statusMsg);
-        // 任务完成或失败时，清理缓存
-        if (progress >= 100 || statusMsg.contains("失败")) {
-            lastFeishuUpdateTime.remove(taskId);
-        }
-    }
-
-    /**
-     * 更新飞书侧消息（原地更新，不发送新消息）
-     * 通过 updateMessage API 更新之前发送的任务通知消息
-     * 如果更新失败（如达到编辑次数上限），自动发送新消息
-     * 支持文本消息和卡片消息的更新
-     */
-    private void updateFeishuMessage(String taskId, int progress, String statusMsg) {
-        try {
-            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-            if (task == null || task.getMessageId() == null) {
-                return;
-            }
-            
-            // 判断消息类型：如果有 eventType 且是 deploy，使用卡片更新；否则使用文本更新
-            String eventType = task.getEventType();
-            boolean useCard = "deploy".equals(eventType) || "code_review".equals(eventType);
-            
-            if (useCard) {
-                // 使用卡片消息更新
-                updateFeishuCardMessage(taskId, progress, statusMsg);
-            } else {
-                // 使用文本消息更新
-                updateFeishuTextMessage(taskId, progress, statusMsg);
-            }
-        } catch (Exception e) {
-            log.warn("更新飞书消息失败: taskId={}, error={}", taskId, e.getMessage());
-        }
-    }
-
-    /**
-     * 更新文本消息
-     */
-    private void updateFeishuTextMessage(String taskId, int progress, String statusMsg) {
-        try {
-            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-            if (task == null || task.getMessageId() == null) {
-                return;
-            }
-            
-            // 构建进度文本消息
-            String progressText = buildProgressText(taskId, progress, statusMsg);
-            // content 必须是 JSON 字符串: {"text":"..."}
-            String contentJson = "{\"text\":\"" + progressText.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"}";
-            
-            // 尝试更新消息
-            boolean updateSuccess = feishuClient.updateMessage(task.getMessageId(), "text", contentJson);
-            if (!updateSuccess) {
-                // 更新失败（可能是编辑次数上限），发送新消息
-                log.info("任务文本消息更新失败，发送新消息: taskId={}, oldMessageId={}", taskId, task.getMessageId());
-                // 从 task 获取 chatId（比 ThreadLocal 更可靠）
-                String chatId = task.getChatId();
-                if (chatId != null) {
-                    String newMessageId = feishuClient.sendText(chatId, progressText);
-                    if (newMessageId != null) {
-                        // 更新任务中的 messageId
-                        AsyncTaskStatus.setMessageId(taskId, newMessageId);
-                        log.info("任务文本消息已更新为新消息: taskId={}, newMessageId={}", taskId, newMessageId);
-                    }
-                } else {
-                    log.warn("无法获取 chatId，无法发送新消息: taskId={}", taskId);
-                }
-            }
-        } catch (Exception e) {
-            log.warn("更新飞书文本消息失败: taskId={}, error={}", taskId, e.getMessage());
-        }
-    }
-
-    /**
-     * 更新卡片消息
-     */
-    private void updateFeishuCardMessage(String taskId, int progress, String statusMsg) {
-        try {
-            AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-            if (task == null || task.getMessageId() == null) {
-                return;
-            }
-            
-            // 构建进度卡片消息
-            String cardJson = buildProgressCard(taskId, progress, statusMsg);
-            
-            // 尝试更新卡片消息
-            boolean updateSuccess = feishuClient.updateMessage(task.getMessageId(), "interactive", cardJson);
-            if (!updateSuccess) {
-                // 更新失败（可能是编辑次数上限），发送新卡片消息
-                log.info("任务卡片消息更新失败，发送新卡片: taskId={}, oldMessageId={}", taskId, task.getMessageId());
-                // 从 task 获取 chatId（比 ThreadLocal 更可靠）
-                String chatId = task.getChatId();
-                if (chatId != null) {
-                    String newMessageId = feishuClient.sendCard(chatId, cardJson);
-                    if (newMessageId != null) {
-                        // 更新任务中的 messageId
-                        AsyncTaskStatus.setMessageId(taskId, newMessageId);
-                        log.info("任务卡片消息已更新为新卡片: taskId={}, newMessageId={}", taskId, newMessageId);
-                    }
-                } else {
-                    log.warn("无法获取 chatId，无法发送新卡片: taskId={}", taskId);
-                }
-            }
-        } catch (Exception e) {
-            log.warn("更新飞书卡片消息失败: taskId={}, error={}", taskId, e.getMessage());
-        }
-    }
-
-    /**
-     * 构建进度卡片 JSON（用于飞书卡片消息更新）
-     */
-    private String buildProgressCard(String taskId, int progress, String statusMsg) {
-        AsyncTaskStatus task = AsyncTaskStatus.get(taskId);
-        String eventType = task != null && task.getEventType() != null ? task.getEventType() : "未知";
-        String taskIdShort = taskId.length() > 8 ? taskId.substring(0, 8) + "..." : taskId;
-        
-        // 根据进度确定颜色和状态
-        String color = "blue";
-        String statusEmoji = "⏳";
-        if (progress >= 100) {
-            color = "green";
-            statusEmoji = "✅";
-        } else if (statusMsg != null && statusMsg.contains("失败")) {
-            color = "red";
-            statusEmoji = "❌";
-        } else if (progress > 0) {
-            color = "blue";
-            statusEmoji = "🔄";
-        }
-        
-        // 构建进度条（文本形式）
-        int bars = progress / 10;
-        StringBuilder progressBar = new StringBuilder();
-        progressBar.append("[");
-        for (int i = 0; i < 10; i++) {
-            progressBar.append(i < bars ? "█" : "░");
-        }
-        progressBar.append("] ");
-        
-        String cardJson = String.format("""
-                {
-                    "config": {"wide_screen_mode": true},
-                    "header": {
-                        "title": {"tag": "plain_text", "content": "%s 任务进度"},
-                        "template": "%s"
-                    },
-                    "elements": [
-                        {"tag": "div", "text": {"tag": "lark_md", "content": "🆔 任务ID: `%s`"}},
-                        {"tag": "div", "text": {"tag": "lark_md", "content": "📦 类型: %s"}},
-                        {"tag": "hr"},
-                        {"tag": "div", "text": {"tag": "lark_md", "content": "📊 进度: %d%%%%"}},
-                        {"tag": "div", "text": {"tag": "lark_md", "content": "%s"}},
-                        {"tag": "div", "text": {"tag": "lark_md", "content": "📝 状态: %s"}},
-                        {"tag": "div", "text": {"tag": "lark_md", "content": "🕐 更新时间: %s"}}
-                    ]
-                }
-                """, statusEmoji, color, taskIdShort, eventType, 
-                    progress, progressBar.toString(), 
-                    statusMsg != null ? statusMsg : "-",
-                    java.time.LocalDateTime.now()
-                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-        
-        return cardJson;
-    }
-
-    /**
-     * 构建进度文本（用于飞书消息更新）
-     */
-    private String buildProgressText(String taskId, int progress, String statusMsg) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("⏳ 任务处理中...\n\n");
-        sb.append("🆔 任务ID: `").append(taskId).append("`\n");
-        sb.append("📊 进度: ").append(progress).append("%\n");
-        sb.append("📝 状态: ").append(statusMsg).append("\n\n");
-        // 进度条
-        int bars = progress / 10;
-        sb.append("[");
-        for (int i = 0; i < 10; i++) {
-            sb.append(i < bars ? "█" : "░");
-        }
-        sb.append("] ").append(progress).append("%\n");
-        return sb.toString();
     }
 
     /**
@@ -785,7 +443,6 @@ public class MessageProcessor {
 
                 if (taskId != null && !taskId.isEmpty()) {
                     com.example.IntelligentRobot.task.TaskContext.setTaskId(taskId);
-                    com.example.IntelligentRobot.task.TaskContext.updateProgress(50, "用户已确认，开始执行操作");
                 }
                 try {
                     Object result = messageDispatcher.getCommandRegistry().execute(action.getCommandName(), confirmContext);
